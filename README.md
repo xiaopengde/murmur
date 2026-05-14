@@ -37,9 +37,15 @@
 
 ## 上手：在你的 AI agent 里调用
 
-Murmur 是一个 **agent skill**。你只需要把它 clone 到 agent 能识别的目录，然后用自然语言指挥 agent 即可，不需要自己记任何命令。
+Murmur 是一个 **agent skill**。最快的安装方式：**把下面这句话复制到你的 agent 对话框**，它会自己判断该装到哪个目录：
 
-### 1. 装到你的 agent 能识别的 skills 目录
+> **请帮我安装这个 skill 到本地：https://github.com/xiaopengde/murmur**
+
+agent 会自动识别你用的是 Claude Code / Copilot / Cursor / Codex，clone 到对应的 skills 目录，然后告诉你"装好了"。之后跟它说"用 Murmur 转一下 xxx.m4a"就行。
+
+### 手动指定安装位置（可选）
+
+如果你想自己控制装到哪：
 
 | Agent | 推荐安装位置 |
 |---|---|
@@ -64,7 +70,7 @@ mkdir -p .github/skills && cd .github/skills
 git clone https://github.com/xiaopengde/murmur.git
 ```
 
-### 2. 在 agent 对话框里说一句话
+### 装完之后，在 agent 对话框里说一句话
 
 > **"用 Murmur 把 `~/Desktop/会议.m4a` 转成纪要"**
 
@@ -79,7 +85,7 @@ agent 会自动按 [SKILL.md](SKILL.md) 走完整套流程：
 
 **整个过程只需要一次用户交互**（首次的格式选择），之后无人值守。
 
-### 3. 之后的常用对话
+### 常用对话清单
 
 | 你想做什么 | 跟 agent 说 |
 |---|---|
@@ -231,16 +237,11 @@ A：MIT License，可以。Whisper 模型本身也是 MIT 开源，无商用限�
 
 **Murmur** is a free, fully-local audio → markdown/docx pipeline that replaces SaaS transcription services like Otter.ai or Fireflies.ai. It's built **agent-first** — drop it into your AI coding agent's skills directory (Claude Code / Codex / GitHub Copilot / Cursor) and it runs end-to-end with a single natural-language request.
 
-**Quick start (agent-first):**
+**Quick start (agent-first):** copy this line into your AI agent:
 
-```bash
-mkdir -p ~/.claude/skills && cd ~/.claude/skills
-git clone https://github.com/xiaopengde/murmur.git
-```
+> *Please install this skill locally for me: https://github.com/xiaopengde/murmur*
 
-Then in your agent: *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"*
-
-The agent will run env doctor, install missing deps, ask you once for default md vs docx, transcribe with Whisper large-v3 (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
+The agent will detect whether you're on Claude Code / Copilot / Cursor / Codex and clone Murmur into the right skills directory. Then say *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"* and it'll run env doctor, install missing deps, ask you once for default md vs docx, transcribe with Whisper large-v3 (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
 
 **Manual usage:** `bash scripts/install-mac.sh` (Mac) / `scripts/install-windows.ps1` (Win) → `python scripts/transcribe.py recording.m4a`.
 
