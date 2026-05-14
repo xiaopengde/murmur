@@ -1,0 +1,36 @@
+# Audio working files
+*.wav
+*.m4a
+*.mp3
+*.mp4
+*.webm
+*.flac
+*.ogg
+
+# Transcription intermediates
+audio_16k.*
+*.vtt
+*.tsv
+*.json
+!examples/**/*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.uv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# User config — should never be committed
+config.json
+.env
