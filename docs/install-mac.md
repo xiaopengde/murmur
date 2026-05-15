@@ -25,6 +25,12 @@ Homebrew 是 macOS 的"软件商店"，装一次终身受用。
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
+**🇨🇳 大陆用户推荐用 USTC 镜像安装**（避免 `raw.githubusercontent.com` 超时）：
+
+```bash
+/bin/bash -c "$(curl -fsSL https://mirrors.ustc.edu.cn/misc/brew-install.sh)"
+```
+
 装完后按提示把 brew 加到 PATH（脚本会告诉你贴哪两行进 `~/.zshrc`）。
 
 验证：
@@ -41,6 +47,22 @@ brew --version
 
 ```bash
 brew install ffmpeg uv pandoc
+```
+
+**🇨🇳 大陆用户**：直接跑 `bash scripts/install-mac.sh` 会自动检测时区/语言，命中大陆就**自动启用 USTC 镜像**（`HOMEBREW_API_DOMAIN` / `HOMEBREW_BOTTLE_DOMAIN` / `HOMEBREW_BREW_GIT_REMOTE` / `HOMEBREW_CORE_GIT_REMOTE`），bottle 下载会快很多。也可以手动 `--cn` / `--no-cn` 强制开关：
+
+```bash
+bash scripts/install-mac.sh --cn      # 强制启用大陆镜像
+bash scripts/install-mac.sh --no-cn   # 强制走官方源
+```
+
+如果你想长期让 `brew install` 走 USTC（不只是装 Murmur 时），把下面四行加到 `~/.zshrc`：
+
+```bash
+export HOMEBREW_API_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles/api"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles"
+export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.ustc.edu.cn/brew.git"
+export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.ustc.edu.cn/homebrew-core.git"
 ```
 
 各自的作用：
@@ -100,12 +122,20 @@ which brew
 
 ### Q：HuggingFace 下载慢/失败？
 
-国内镜像：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+
+```bash
+python scripts/transcribe.py 录音.m4a --cn
+```
+
+脚本默认也会按时区/语言自动判断；显式 `--cn` / `--no-cn` 只是用来强制开关。
+
+想让所有命令长期生效（包括手动 `uvx` 调试）：
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-# 想长期生效就加到 ~/.zshrc
-echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc
+# 写入 ~/.zshrc（用 grep 防重复）
+grep -q '^export HF_ENDPOINT=' ~/.zshrc 2>/dev/null || echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc
 ```
 
 设完重跑 `transcribe.py`。

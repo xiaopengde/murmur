@@ -53,6 +53,15 @@ winget install -e --id Python.Python.3.11
 
 **装完关掉 PowerShell 重新开**，让 PATH 刷新。
 
+**🇨🇳 大陆用户**：直接跑 `scripts\install-windows.ps1` 会自动检测系统语言/时区，命中 zh-CN / China Standard Time 就**自动启用大陆兜底建议**（winget 失败时给 Scoop + 南大镜像、uv 用清华 PyPI 镜像装）。也可以手动 `-CN` / `-NoCN`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN     # 强制启用
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -NoCN   # 强制禁用
+```
+
+注：winget 本身没有国内镜像，但它走的是 Microsoft CDN，大多数情况下可达；如果真的卡死，按下面"备选方案 A：Scoop"（已经配好南大镜像加速）走会更稳。
+
 ---
 
 ## 3. 备选方案 A：用 Scoop
@@ -60,6 +69,20 @@ winget install -e --id Python.Python.3.11
 如果你已经在用 Scoop：
 
 ```powershell
+scoop install ffmpeg uv pandoc python
+```
+
+🇨🇳 大陆用户首次装 Scoop / 提速：
+
+```powershell
+# 装 Scoop
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+iwr -useb get.scoop.sh | iex
+
+# 把 main bucket 切到南大镜像（可选，加速 manifest 同步）
+scoop config SCOOP_REPO https://mirror.nju.edu.cn/scoop
+
+# 装四件套
 scoop install ffmpeg uv pandoc python
 ```
 
@@ -133,7 +156,15 @@ $env:Path += ";C:\ffmpeg\bin"
 
 ### Q：HuggingFace 下载慢/失败
 
-国内镜像，PowerShell 里设：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+
+```powershell
+python scripts\transcribe.py 录音.m4a --cn
+```
+
+脚本默认也会按系统语言/时区自动判断；显式 `-CN` / `--cn` / `--no-cn` 只是用来强制开关（PowerShell `install-windows.ps1` 用 `-CN`，Python `transcribe.py` 用 `--cn`）。
+
+想让所有命令长期生效（包括手动 `uvx` 调试），在 PowerShell 里设：
 
 ```powershell
 $env:HF_ENDPOINT = "https://hf-mirror.com"
@@ -152,7 +183,12 @@ notepad $PROFILE
 Windows 走 CPU 转录，本来就比 Apple Silicon GPU 慢。提速选项：
 
 1. **NVIDIA 显卡**：whisper-ctranslate2 自动检测 CUDA。装 CUDA Toolkit 12.x 后会自动用 GPU
-2. **换小模型**：编辑 `scripts/transcribe.py`，把 `--model large-v3` 改成 `--model medium` 或 `small`，速度 3-5 倍但准确率有降
+2. **换小模型**：直接传 `--model`，不用改源码：
+   ```powershell
+   python scripts\transcribe.py 录音.m4a --model medium      # 速度约 3-5x，准确率略降
+   python scripts\transcribe.py --set-default-model medium   # 永久改默认
+   ```
+   支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo`，会自动按引擎映射（mlx-whisper 走社区量化版，whisper-ctranslate2 走官方名）。
 3. **拆分长音频**：用 ffmpeg 把 1 小时录音拆成 4 段 15 分钟分别跑
 
 ### Q：Python 报 UnicodeDecodeError，处理中文文件名出错

@@ -26,6 +26,14 @@ CHINA_MIRRORS = {
     "HF_ENDPOINT": "https://hf-mirror.com",
 }
 
+# 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
+# （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
+# 不在这个列表里的值也允许（直接透传），方便高级用户用完整 HF repo 名。
+KNOWN_MODELS = {
+    "tiny", "base", "small", "medium",
+    "large-v1", "large-v2", "large-v3", "large-v3-turbo",
+}
+
 
 def _config_dir() -> Path:
     if sys.platform == "win32":
@@ -68,6 +76,24 @@ def set_default_format(fmt: str) -> None:
         raise ValueError(f"格式必须是 {VALID_FORMATS} 之一，收到：{fmt!r}")
     cfg = load()
     cfg["default_format"] = fmt
+    save(cfg)
+
+
+def get_default_model() -> str | None:
+    """读出用户设置的默认模型；返回 None 表示用代码里的内置默认（large-v3）。"""
+    cfg = load()
+    model = cfg.get("default_model")
+    if isinstance(model, str) and model.strip():
+        return model.strip()
+    return None
+
+
+def set_default_model(model: str) -> None:
+    """写入默认模型。允许任意非空字符串：短名（large-v3）或完整 HF repo 名都行。"""
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError(f"模型名不能为空，收到：{model!r}")
+    cfg = load()
+    cfg["default_model"] = model.strip()
     save(cfg)
 
 
