@@ -24,6 +24,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 # 让本脚本无论怎么跑都能 import config
@@ -213,8 +215,21 @@ def run_transcribe(
             "--output_dir", str(output_dir),
         ]
 
+    # 心跳线程：每 30 秒打印已用时间，让用户知道推理还在跑
+    stop_heartbeat = threading.Event()
+    def _heartbeat():
+        t0 = time.monotonic()
+        while not stop_heartbeat.wait(30):
+            elapsed = int(time.monotonic() - t0)
+            m, s = divmod(elapsed, 60)
+            print(f"      ⏳ 推理中... 已用时 {m}:{s:02d}", flush=True)
+    hb = threading.Thread(target=_heartbeat, daemon=True)
+    hb.start()
+
     # 实时输出；env 传给子进程，承载 HF_ENDPOINT / UV_INDEX_URL 等
     result = subprocess.run(cmd, env=env)
+    stop_heartbeat.set()
+    hb.join(timeout=1)
     if result.returncode != 0:
         sys.stderr.write(
             "❌ 转录失败。常见原因：\n"
@@ -298,7 +313,7 @@ def main() -> int:
         print(f"内容：{cfg or '(空)'}")
         return 0
 
-    if args.mirror:
+    if getattr(args, "mirror", None):
         config.set_mirror(args.mirror)
         if args.mirror == "cn":
             print("✅ 已开启国内镜像加速（清华 PyPI + hf-mirror.com）")
