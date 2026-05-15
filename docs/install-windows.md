@@ -156,7 +156,15 @@ $env:Path += ";C:\ffmpeg\bin"
 
 ### Q：HuggingFace 下载慢/失败
 
-国内镜像，PowerShell 里设：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+
+```powershell
+python scripts\transcribe.py 录音.m4a --cn
+```
+
+脚本默认也会按系统语言/时区自动判断；显式 `-CN` / `--cn` / `--no-cn` 只是用来强制开关（PowerShell `install-windows.ps1` 用 `-CN`，Python `transcribe.py` 用 `--cn`）。
+
+想让所有命令长期生效（包括手动 `uvx` 调试），在 PowerShell 里设：
 
 ```powershell
 $env:HF_ENDPOINT = "https://hf-mirror.com"
@@ -175,7 +183,12 @@ notepad $PROFILE
 Windows 走 CPU 转录，本来就比 Apple Silicon GPU 慢。提速选项：
 
 1. **NVIDIA 显卡**：whisper-ctranslate2 自动检测 CUDA。装 CUDA Toolkit 12.x 后会自动用 GPU
-2. **换小模型**：编辑 `scripts/transcribe.py`，把 `--model large-v3` 改成 `--model medium` 或 `small`，速度 3-5 倍但准确率有降
+2. **换小模型**：直接传 `--model`，不用改源码：
+   ```powershell
+   python scripts\transcribe.py 录音.m4a --model medium      # 速度约 3-5x，准确率略降
+   python scripts\transcribe.py --set-default-model medium   # 永久改默认
+   ```
+   支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo`，会自动按引擎映射（mlx-whisper 走社区量化版，whisper-ctranslate2 走官方名）。
 3. **拆分长音频**：用 ffmpeg 把 1 小时录音拆成 4 段 15 分钟分别跑
 
 ### Q：Python 报 UnicodeDecodeError，处理中文文件名出错

@@ -122,11 +122,19 @@ which brew
 
 ### Q：HuggingFace 下载慢/失败？
 
-国内镜像：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+
+```bash
+python scripts/transcribe.py 录音.m4a --cn
+```
+
+脚本默认也会按时区/语言自动判断；显式 `--cn` / `--no-cn` 只是用来强制开关。
+
+想让所有命令长期生效（包括手动 `uvx` 调试）：
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-# 想长期生效就加到 ~/.zshrc（用 grep 防重复）
+# 写入 ~/.zshrc（用 grep 防重复）
 grep -q '^export HF_ENDPOINT=' ~/.zshrc 2>/dev/null || echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc
 ```
 
