@@ -53,6 +53,15 @@ winget install -e --id Python.Python.3.11
 
 **装完关掉 PowerShell 重新开**，让 PATH 刷新。
 
+**🇨🇳 大陆用户**：直接跑 `scripts\install-windows.ps1` 会自动检测系统语言/时区，命中 zh-CN / China Standard Time 就**自动启用大陆兜底建议**（winget 失败时给 Scoop + 南大镜像、uv 用清华 PyPI 镜像装）。也可以手动 `-CN` / `-NoCN`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN     # 强制启用
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -NoCN   # 强制禁用
+```
+
+注：winget 本身没有国内镜像，但它走的是 Microsoft CDN，大多数情况下可达；如果真的卡死，按下面"备选方案 A：Scoop"（已经配好南大镜像加速）走会更稳。
+
 ---
 
 ## 3. 备选方案 A：用 Scoop
@@ -60,6 +69,20 @@ winget install -e --id Python.Python.3.11
 如果你已经在用 Scoop：
 
 ```powershell
+scoop install ffmpeg uv pandoc python
+```
+
+🇨🇳 大陆用户首次装 Scoop / 提速：
+
+```powershell
+# 装 Scoop
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+iwr -useb get.scoop.sh | iex
+
+# 把 main bucket 切到南大镜像（可选，加速 manifest 同步）
+scoop config SCOOP_REPO https://mirror.nju.edu.cn/scoop
+
+# 装四件套
 scoop install ffmpeg uv pandoc python
 ```
 
