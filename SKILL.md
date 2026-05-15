@@ -181,7 +181,8 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 转录文本反复 "X 点 X 点 X 点…" 或某句话整段重复 | `condition-on-previous-text` 未关 | 用本仓库的 transcribe.py 不会有这个问题；如果手动改过命令，加回 `--condition-on-previous-text False` |
 | 全程 "谢谢观看" 成段重复 | 音频开头有静音 + 没做 ffmpeg 预处理 | 用本仓库的 transcribe.py 自动处理；手动跑时记得先 `ffmpeg -ar 16000 -ac 1` |
 | 速度极慢 | 用成了 openai-whisper PyPI 版（纯 CPU + Python） | 确认走的是 mlx-whisper（Mac AS）或 whisper-ctranslate2（其他） |
-| 模型下载卡住 | HuggingFace 网络问题 | `export HF_ENDPOINT=https://hf-mirror.com`（Win: `$env:HF_ENDPOINT="https://hf-mirror.com"`）后重跑 |
+| 模型下载卡住 | HuggingFace 网络问题 | 跑 `python scripts/transcribe.py --mirror cn` 开启国内镜像加速（清华 PyPI + hf-mirror.com），设一次永久生效 |
+| Python 包下载极慢 | PyPI 国内直连慢 | 同上，`--mirror cn` 会同时加速 PyPI 和 HuggingFace |
 | Mac 上 install-mac.sh 报 "command not found: brew" | Homebrew 没装 | 让用户先装 Homebrew（脚本会给提示） |
 | Windows 上 install-windows.ps1 报权限错误 | PowerShell 没用管理员模式 | 右键 PowerShell → 以管理员身份运行 |
 | Windows 上 winget 找不到 | 旧版 Windows 10 没装 winget | 让用户从 Microsoft Store 装 "App Installer" |

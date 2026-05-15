@@ -165,6 +165,7 @@ def main() -> int:
     parser.add_argument("--lang", default="zh", help="音频语言（默认 zh，参考 Whisper 语言代码）")
     parser.add_argument("--output-dir", default=None, help="输出目录（默认与音频同目录）")
     parser.add_argument("--set-default", choices=["md", "docx"], help="设置永久默认格式后退出")
+    parser.add_argument("--mirror", choices=["cn", "off"], help="设置下载镜像加速（cn=国内镜像，off=关闭）后退出")
     parser.add_argument("--show-config", action="store_true", help="显示当前配置后退出")
 
     args = parser.parse_args()
@@ -174,6 +175,16 @@ def main() -> int:
         cfg = config.load()
         print(f"配置文件：{config.config_path()}")
         print(f"内容：{cfg or '(空)'}")
+        return 0
+
+    if args.mirror:
+        config.set_mirror(args.mirror)
+        if args.mirror == "cn":
+            print("✅ 已开启国内镜像加速（清华 PyPI + hf-mirror.com）")
+            print("   PyPI:        https://pypi.tuna.tsinghua.edu.cn/simple/")
+            print("   HuggingFace: https://hf-mirror.com")
+        else:
+            print("✅ 已关闭镜像加速，使用默认源")
         return 0
 
     if args.set_default:
@@ -193,6 +204,10 @@ def main() -> int:
         return 1
 
     check_prereqs()
+
+    # 镜像加速：如果配置了 cn 镜像，注入环境变量
+    if config.apply_mirror_env():
+        print("ℹ️  已启用国内镜像加速（关闭：python transcribe.py --mirror off）")
 
     # 决定输出格式：CLI flag 优先 > config 默认 > 首次询问
     fmt = args.format

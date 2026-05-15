@@ -203,7 +203,13 @@ murmur/
 ## 常见问题
 
 **Q：模型有多大？下载慢怎么办？**
-A：large-v3 约 2.9GB。国内首次下慢的话设 HuggingFace 镜像：`export HF_ENDPOINT=https://hf-mirror.com`（Windows: `$env:HF_ENDPOINT="https://hf-mirror.com"`）。
+A：large-v3 约 2.9GB。**国内用户强烈建议先开镜像加速**（一次设置，永久生效）：
+
+```bash
+python scripts/transcribe.py --mirror cn
+```
+
+这条命令会同时加速 PyPI 包下载（清华镜像）和 HuggingFace 模型下载（hf-mirror.com）。关闭用 `--mirror off`。
 
 **Q：能转英语 / 日语 / 其他语言吗？**
 A：能。`python scripts/transcribe.py 录音.m4a --lang en`，支持 Whisper 全部 99 种语言，默认 zh。

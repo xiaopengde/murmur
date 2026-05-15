@@ -123,9 +123,16 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/murmur"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
+  MIRROR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('mirror','off'))" 2>/dev/null || echo "off")
   ok "Murmur 配置已存在（默认输出格式：$FORMAT）"
+  if [[ "$MIRROR" == "cn" ]]; then
+    ok "国内镜像加速已开启（清华 PyPI + hf-mirror.com）"
+  else
+    info "国内镜像加速未开启。网速慢？跑：python3 scripts/transcribe.py --mirror cn"
+  fi
 else
   info "Murmur 还未初始化，首次跑 transcribe.py 时会问你 md/docx 默认值"
+  info "国内用户建议先跑：python3 scripts/transcribe.py --mirror cn"
 fi
 
 echo ""
