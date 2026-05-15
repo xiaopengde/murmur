@@ -126,8 +126,8 @@ which brew
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-# 想长期生效就加到 ~/.zshrc
-echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc
+# 想长期生效就加到 ~/.zshrc（用 grep 防重复）
+grep -q '^export HF_ENDPOINT=' ~/.zshrc 2>/dev/null || echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc
 ```
 
 设完重跑 `transcribe.py`。

@@ -20,6 +20,18 @@ warn() { echo -e "${YELLOW}⚠️ ${NC} $1"; }
 err()  { echo -e "${RED}❌${NC} $1"; exit 1; }
 info() { echo -e "${BLUE}ℹ️ ${NC} $1"; }
 
+usage() {
+  cat <<'EOF'
+Murmur 一键安装 — macOS
+装 ffmpeg / uv / pandoc
+
+用法：
+  bash scripts/install-mac.sh                 # 自动检测是否在中国大陆，决定是否启用镜像
+  bash scripts/install-mac.sh --cn            # 强制启用大陆镜像（USTC Homebrew）
+  bash scripts/install-mac.sh --no-cn         # 强制禁用镜像
+EOF
+}
+
 # ---------- 解析参数 ----------
 CN_MODE=""   # "", "yes", "no"
 for arg in "$@"; do
@@ -27,7 +39,7 @@ for arg in "$@"; do
     --cn|--china)   CN_MODE="yes" ;;
     --no-cn)        CN_MODE="no" ;;
     -h|--help)
-      sed -n '2,8p' "$0"
+      usage
       exit 0
       ;;
     *) warn "忽略未知参数：$arg" ;;
@@ -168,8 +180,8 @@ echo ""
 echo "首次转录会下载 ~2.9GB 的 Whisper large-v3 模型，喝杯咖啡。"
 if [[ "$CN_MODE" == "yes" ]]; then
   echo ""
-  echo "🇨🇳 大陆用户：模型下载也建议走镜像，把下面这行加到 ~/.zshrc 让以后所有终端生效："
-  echo "  echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc"
+  echo "🇨🇳 大陆用户：模型下载也建议走镜像，把下面这行加到 ~/.zshrc 让以后所有终端生效（已存在则跳过）："
+  echo "  grep -q '^export HF_ENDPOINT=' ~/.zshrc 2>/dev/null || echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc"
 else
   echo "国内网络慢可加："
   echo "  export HF_ENDPOINT=https://hf-mirror.com"
