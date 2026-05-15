@@ -18,6 +18,13 @@ import sys
 from pathlib import Path
 
 VALID_FORMATS = {"md", "docx"}
+VALID_MIRRORS = {"cn", "off"}
+
+# 国内镜像地址
+CHINA_MIRRORS = {
+    "UV_INDEX_URL": "https://pypi.tuna.tsinghua.edu.cn/simple/",
+    "HF_ENDPOINT": "https://hf-mirror.com",
+}
 
 # 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
 # （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
@@ -119,3 +126,32 @@ def prompt_for_default_format() -> str:
     set_default_format(fmt)
     print(f"已保存默认格式：{fmt}（之后随时可用 --set-default 切换）\n")
     return fmt
+
+
+# ---------- 镜像加速 ----------
+
+def get_mirror() -> str | None:
+    """返回当前配置的镜像区域（'cn' 或 None）。"""
+    cfg = load()
+    m = cfg.get("mirror")
+    return m if m in VALID_MIRRORS and m != "off" else None
+
+
+def set_mirror(region: str) -> None:
+    """设置镜像区域（'cn' 或 'off'）。"""
+    if region not in VALID_MIRRORS:
+        raise ValueError(f"镜像必须是 {VALID_MIRRORS} 之一，收到：{region!r}")
+    cfg = load()
+    cfg["mirror"] = region
+    save(cfg)
+
+
+def apply_mirror_env() -> bool:
+    """如果配置了国内镜像，把对应环境变量注入 os.environ。返回是否注入了。"""
+    mirror = get_mirror()
+    if mirror == "cn":
+        for key, val in CHINA_MIRRORS.items():
+            if key not in os.environ:
+                os.environ[key] = val
+        return True
+    return False

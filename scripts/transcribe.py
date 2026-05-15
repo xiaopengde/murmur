@@ -298,6 +298,16 @@ def main() -> int:
         print(f"内容：{cfg or '(空)'}")
         return 0
 
+    if args.mirror:
+        config.set_mirror(args.mirror)
+        if args.mirror == "cn":
+            print("✅ 已开启国内镜像加速（清华 PyPI + hf-mirror.com）")
+            print("   PyPI:        https://pypi.tuna.tsinghua.edu.cn/simple/")
+            print("   HuggingFace: https://hf-mirror.com")
+        else:
+            print("✅ 已关闭镜像加速，使用默认源")
+        return 0
+
     if args.set_default:
         config.set_default_format(args.set_default)
         print(f"✅ 默认输出格式已改为：{args.set_default}")
@@ -326,6 +336,10 @@ def main() -> int:
         return 1
 
     check_prereqs()
+
+    # 镜像加速：如果配置了 cn 镜像，注入环境变量
+    if config.apply_mirror_env():
+        print("ℹ️  已启用国内镜像加速（关闭：python transcribe.py --mirror off）")
 
     # 决定输出格式：CLI flag 优先 > config 默认 > 首次询问
     fmt = args.format
