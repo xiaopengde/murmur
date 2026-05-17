@@ -203,7 +203,9 @@ murmur/
 ## 常见问题
 
 **Q：模型有多大？下载慢怎么办？**
-A：large-v3 约 2.9GB。国内首次下慢的话，跑 `transcribe.py` 时加 `--cn`，它会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖也走清华源）。脚本默认还会按时区/语言自动判断，命中就直接启用。想长期生效也可以手动 `export HF_ENDPOINT=https://hf-mirror.com`（Win: `$env:HF_ENDPOINT="https://hf-mirror.com"`）。
+A：large-v3 约 2.9GB。国内首次下慢的话，跑 `transcribe.py` 时加 `--cn`，它会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖也走清华源）。脚本默认还会按时区/语言/系统区域自动判断，命中就直接启用。
+
+不想每次都加 `--cn`？跑一次 `python scripts/transcribe.py --set-default-cn on` 持久化偏好；或直接 `bash scripts/install-mac.sh --cn`，安装脚本会自动帮你把偏好写进去。想长期手动生效也可以 `export HF_ENDPOINT=https://hf-mirror.com`（Win: `$env:HF_ENDPOINT="https://hf-mirror.com"`）。
 
 **Q：能换更小/更快的模型吗？**
 A：能。`--model` 接受 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo` 短名，会按引擎自动映射（mlx-whisper 用社区量化版，whisper-ctranslate2 用官方名）。也接受完整 HF repo 名。单次：`--model medium`；永久：`--set-default-model medium`，清空：`--set-default-model ""`。

@@ -123,16 +123,22 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/murmur"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
-  MIRROR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('mirror','off'))" 2>/dev/null || echo "off")
+  CN_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('cn_mode','auto'))" 2>/dev/null || echo "auto")
   ok "Murmur 配置已存在（默认输出格式：$FORMAT）"
-  if [[ "$MIRROR" == "cn" ]]; then
-    ok "国内镜像加速已开启（清华 PyPI + hf-mirror.com）"
-  else
-    info "国内镜像加速未开启。网速慢？跑：python3 scripts/transcribe.py --mirror cn"
-  fi
+  case "$CN_MODE" in
+    on)
+      ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）"
+      ;;
+    off)
+      info "大陆镜像偏好：off（每次转录走官方源；国内慢可改：python3 scripts/transcribe.py --set-default-cn on）"
+      ;;
+    *)
+      info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python3 scripts/transcribe.py --set-default-cn on）"
+      ;;
+  esac
 else
   info "Murmur 还未初始化，首次跑 transcribe.py 时会问你 md/docx 默认值"
-  info "国内用户建议先跑：python3 scripts/transcribe.py --mirror cn"
+  info "国内用户建议先跑：python3 scripts/transcribe.py --set-default-cn on"
 fi
 
 echo ""

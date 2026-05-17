@@ -35,10 +35,13 @@ function Test-CnEnvironment {
 }
 
 $useCnMirror = $false
+$explicitCn = $null  # $true = 用户传 -CN；$false = 用户传 -NoCN；$null = auto-detect
 if ($CN) {
     $useCnMirror = $true
+    $explicitCn = $true
 } elseif ($NoCN) {
     $useCnMirror = $false
+    $explicitCn = $false
 } elseif (Test-CnEnvironment) {
     $useCnMirror = $true
     Write-Info "检测到中国大陆环境（语言/时区），将启用安装阶段的镜像/兜底（如需关闭：重跑时加 -NoCN）"
@@ -168,6 +171,26 @@ Write-Host ""
 Write-Host "================================"
 Write-Ok "Murmur 安装完成！"
 Write-Host "================================"
+Write-Host ""
+
+# ---------- 持久化大陆镜像偏好（仅当用户显式 -CN / -NoCN 时）----------
+# auto-detect 的结果不写入配置——把"自动判断"的决策权留给 transcribe.py 每次跑时再决定
+if ($null -ne $explicitCn -and $pythonCmd) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $transcribePy = Join-Path $scriptDir "transcribe.py"
+    if ($explicitCn) {
+        & $pythonCmd $transcribePy --set-default-cn on 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python scripts\transcribe.py --set-default-cn off）"
+        }
+    } else {
+        & $pythonCmd $transcribePy --set-default-cn off 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "已记住偏好：以后 transcribe.py 默认走官方源（恢复自动：python scripts\transcribe.py --set-default-cn auto）"
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "下一步："
 Write-Host "  1) 关掉当前 PowerShell，新开一个（让 PATH 刷新）"

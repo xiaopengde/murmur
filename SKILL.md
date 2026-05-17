@@ -95,7 +95,17 @@ python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--mode
 - `HF_ENDPOINT=https://hf-mirror.com`（模型下载走 hf-mirror）
 - `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉 mlx-whisper / whisper-ctranslate2 走清华）
 
-用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制开关。
+用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制单次开关。
+
+**持久化偏好**（避免每次都加 `--cn`）：
+
+```bash
+python scripts/transcribe.py --set-default-cn on    # 以后每次自动启用
+python scripts/transcribe.py --set-default-cn off   # 以后每次走官方源
+python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自动判断（默认）
+```
+
+也可以直接 `bash scripts/install-mac.sh --cn`（或 `-CN` for Windows），安装脚本会在结束时把偏好写进配置。
 
 **换更小的模型**（CPU 慢机器常用）：
 
@@ -197,7 +207,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 转录文本反复 "X 点 X 点 X 点…" 或某句话整段重复 | `condition-on-previous-text` 未关 | 用本仓库的 transcribe.py 不会有这个问题；如果手动改过命令，加回 `--condition-on-previous-text False` |
 | 全程 "谢谢观看" 成段重复 | 音频开头有静音 + 没做 ffmpeg 预处理 | 用本仓库的 transcribe.py 自动处理；手动跑时记得先 `ffmpeg -ar 16000 -ac 1` |
 | 速度极慢 | 用成了 openai-whisper PyPI 版（纯 CPU + Python） | 确认走的是 mlx-whisper（Mac AS）或 whisper-ctranslate2（其他） |
-| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`（默认按时区/语言自动判断，可不传） |
+| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
 | `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |

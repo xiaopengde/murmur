@@ -92,12 +92,20 @@ $configFile = "$configDir\config.json"
 if (Test-Path $configFile) {
     try {
         $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
-        Write-Ok "Murmur 配置已存在（默认输出格式：$($cfg.default_format)）"
+        $fmt = if ($cfg.default_format) { $cfg.default_format } else { "?" }
+        Write-Ok "Murmur 配置已存在（默认输出格式：$fmt）"
+        $cnMode = if ($cfg.cn_mode) { $cfg.cn_mode } else { "auto" }
+        switch ($cnMode) {
+            "on"  { Write-Ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" }
+            "off" { Write-Info "大陆镜像偏好：off（每次走官方源；国内慢可改：python scripts\transcribe.py --set-default-cn on）" }
+            default { Write-Info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python scripts\transcribe.py --set-default-cn on）" }
+        }
     } catch {
         Write-Warn2 "Murmur 配置文件存在但解析失败：$configFile"
     }
 } else {
     Write-Info "Murmur 还未初始化，首次跑 transcribe.py 时会问你 md/docx 默认值"
+    Write-Info "国内用户建议先跑：python scripts\transcribe.py --set-default-cn on"
 }
 
 Write-Host ""
