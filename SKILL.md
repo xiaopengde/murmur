@@ -144,7 +144,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
   python scripts/clean.py 转录原稿.txt [--scene interview|meeting|podcast]
   # 输出组装好的 prompt，复制到 LLM 对话框即可
   ```
-- **手动**：打开 `docs/prompts/clean-transcript.md`，把 `=== PROMPT 开始 ===` 到 `=== PROMPT 结束 ===` 之间的内容**原封不动**复制出来（不要总结、不要省略、不要用下面的简化版代替）。然后在末尾的占位符处贴入 `转录原稿.txt` 的全部内容。
+- **手动**：打开 `docs/prompts/clean-transcript.md`，把 `## === PROMPT 开始 ===` 到 `## === PROMPT 结束 ===` 之间的内容**原封不动**复制出来（不要总结、不要省略、不要用下面的简化版代替）。然后在末尾的占位符处贴入 `转录原稿.txt` 的全部内容。
 
 **2. 补场景描述**（如已知，加在 prompt 最前面）
 

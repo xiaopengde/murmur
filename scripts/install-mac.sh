@@ -58,10 +58,9 @@ detect_cn() {
       *Shanghai*|*Chongqing*|*Urumqi*|*Harbin*) return 0 ;;
     esac
   fi
-  # locale / 语言
-  case "${LANG:-}${LC_ALL:-}" in
-    zh_CN*|zh-CN*) return 0 ;;
-  esac
+  # locale / 语言（分别检查，避免拼接导致 "en_US.UTF-8zh_CN.UTF-8" 这类假阴性）
+  case "${LANG:-}" in zh_CN*|zh-CN*) return 0 ;; esac
+  case "${LC_ALL:-}" in zh_CN*|zh-CN*) return 0 ;; esac
   # 系统偏好设置（macOS）
   if command -v defaults >/dev/null 2>&1; then
     local loc
