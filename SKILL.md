@@ -48,6 +48,15 @@ powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1
 
 安装完再跑一次 `doctor`，全 ✅ 才进入下一步。**不要假设用户已经装了 ffmpeg / uv / pandoc**——这是最常见的 onboarding 翻车点。
 
+**端到端验证**（首次安装强烈推荐，或排查问题时）：
+
+```bash
+bash scripts/doctor.sh --smoke                                    # macOS / Linux
+powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Smoke  # Windows
+```
+
+会自动生成 2 秒测试音频跑完整 pipeline（用 tiny 模型，首次约 75MB），通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
+
 ### 步骤 B — 询问默认输出格式（首次使用时）
 
 `transcribe.py` 自己会处理——首次跑时会停下来问：

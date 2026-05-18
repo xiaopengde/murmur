@@ -1,5 +1,13 @@
 # Murmur env doctor — Windows PowerShell
 # 检查 ffmpeg / uv / pandoc / python / 平台 / HuggingFace 缓存
+#
+# 用法：
+#   powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1 -Smoke   # 加端到端烟雾测试
+
+param(
+    [switch]$Smoke
+)
 
 $ErrorActionPreference = "Continue"
 
@@ -115,6 +123,111 @@ if ((Test-Cmd ffmpeg) -and (Test-Cmd uvx) -and $pythonCmd) {
     Write-Host "    试试：$pythonCmd scripts\transcribe.py 你的录音.m4a"
 } else {
     Write-Err "缺少核心依赖，请按上方提示安装；或一键跑：powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1"
+    if ($Smoke) {
+        Write-Err "依赖缺失，跳过 -Smoke 端到端测试"
+        exit 1
+    }
 }
 Write-Host "================================"
 Write-Host ""
+
+# ---------- 烟雾测试 (-Smoke) ----------
+if (-not $Smoke) { exit 0 }
+
+Write-Host "================================"
+Write-Host "  烟雾测试 (-Smoke)"
+Write-Host "================================"
+Write-Host ""
+Write-Info "生成 2 秒测试音频 -> 跑完整 pipeline -> 校验输出"
+Write-Info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
+Write-Host ""
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$smokeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("murmur-smoke-" + [System.Guid]::NewGuid().ToString("N").Substring(0,8))
+New-Item -ItemType Directory -Path $smokeDir | Out-Null
+$smokeAudio = Join-Path $smokeDir "smoke.m4a"
+$smokeKeep = $false
+
+try {
+    # 1) 生成 2 秒测试音频（Windows 没 say，用 ffmpeg 正弦波）
+    Write-Info "[1/3] 生成测试音频..."
+    $ffArgs = @("-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                "-ar", "44100", "-ac", "1", "-c:a", "aac", $smokeAudio)
+    $ff = Start-Process -FilePath "ffmpeg" -ArgumentList $ffArgs -NoNewWindow -Wait -PassThru -RedirectStandardError "$smokeDir\ffmpeg.log"
+    if ($ff.ExitCode -ne 0) {
+        Write-Err "ffmpeg lavfi 生成测试音频失败"
+        $smokeKeep = $true
+        exit 2
+    }
+    $size = "{0:N0}" -f (Get-Item $smokeAudio).Length
+    Write-Ok "测试音频已生成：$smokeAudio ($size bytes)"
+    Write-Host ""
+
+    # 2) 跑 transcribe.py
+    Write-Info "[2/3] 跑 transcribe.py（--model tiny --format md）..."
+    $start = Get-Date
+    $logFile = Join-Path $smokeDir "transcribe.log"
+    $py = Start-Process -FilePath $pythonCmd -ArgumentList @(
+        (Join-Path $scriptDir "transcribe.py"),
+        $smokeAudio,
+        "--model", "tiny",
+        "--format", "md",
+        "--output-dir", $smokeDir
+    ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    $elapsed = [int]((Get-Date) - $start).TotalSeconds
+    if ($py.ExitCode -ne 0) {
+        Write-Err "transcribe.py 失败（exit=$($py.ExitCode)）。日志末尾："
+        Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "    $_" }
+        Get-Content "$logFile.err" -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+        $smokeKeep = $true
+        exit 3
+    }
+    Write-Ok "转录完成（耗时 ${elapsed}s）"
+    Write-Host ""
+
+    # 3) 校验产物
+    Write-Info "[3/3] 校验输出文件..."
+    $txt = Join-Path $smokeDir "转录原稿.txt"
+    $srt = Join-Path $smokeDir "字幕.srt"
+    $fail = $false
+    if (Test-Path $txt) {
+        $bytes = (Get-Item $txt).Length
+        Write-Ok "转录原稿.txt 存在（$bytes bytes）"
+        $content = (Get-Content $txt -Raw -ErrorAction SilentlyContinue)
+        if ($content) {
+            Write-Info "    内容预览：$($content.Substring(0, [Math]::Min(60, $content.Length)))"
+        } else {
+            Write-Warn2 "    内容为空（正弦波音频无可识别语音，pipeline 跑通即 PASS）"
+        }
+    } else {
+        Write-Err "转录原稿.txt 不存在！实际产物："
+        Get-ChildItem $smokeDir | ForEach-Object { Write-Host "    $($_.Name)" }
+        $smokeKeep = $true
+        $fail = $true
+    }
+    if (Test-Path $srt) {
+        $bytes = (Get-Item $srt).Length
+        Write-Ok "字幕.srt 存在（$bytes bytes）"
+    } else {
+        Write-Err "字幕.srt 不存在！"
+        $smokeKeep = $true
+        $fail = $true
+    }
+
+    Write-Host ""
+    Write-Host "================================"
+    if (-not $fail) {
+        Write-Ok "烟雾测试 PASS — 端到端 pipeline 正常工作"
+    } else {
+        Write-Err "烟雾测试 FAIL — 见上方报错"
+        exit 4
+    }
+    Write-Host "================================"
+    Write-Host ""
+} finally {
+    if ($smokeKeep) {
+        Write-Warn2 "保留调试目录：$smokeDir"
+    } else {
+        Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+    }
+}

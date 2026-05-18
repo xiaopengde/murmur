@@ -284,7 +284,11 @@ def run_transcribe(
 # ---------- 输出整理 ----------
 
 def organize_output(wav_stem: str, output_dir: Path) -> tuple[Path, Path]:
-    """把 mlx/whisper 的默认输出 rename 成中文名，删多余格式。返回 (txt路径, srt路径)。"""
+    """把 mlx/whisper 的默认输出 rename 成中文名，删多余格式。返回 (txt路径, srt路径)。
+
+    若源文件不存在（说明转录子进程虽 exit 0 但没产文件），抛 RuntimeError，
+    避免"转录完成 ✅"的虚假成功。
+    """
     print("[3/3] 整理输出文件 ...")
 
     txt_src = output_dir / f"{wav_stem}.txt"
@@ -293,14 +297,29 @@ def organize_output(wav_stem: str, output_dir: Path) -> tuple[Path, Path]:
     txt_dst = output_dir / "转录原稿.txt"
     srt_dst = output_dir / "字幕.srt"
 
+    if not txt_src.exists() and not srt_src.exists():
+        # 列一下实际产物，方便排查
+        actual = sorted(p.name for p in output_dir.iterdir()) if output_dir.exists() else []
+        raise RuntimeError(
+            f"转录子进程退出码 0，但找不到预期输出：{txt_src.name} / {srt_src.name}\n"
+            f"   输出目录实际内容：{actual}\n"
+            "   常见原因：mlx-whisper / whisper-ctranslate2 把文件写到了别的位置；"
+            "请用 --output-dir 显式指定，或检查脚本日志。"
+        )
+
     if txt_src.exists():
         if txt_dst.exists():
             txt_dst.unlink()
         txt_src.rename(txt_dst)
+    else:
+        print(f"      ⚠️  缺少 {txt_src.name}（只产出了 srt？）")
+
     if srt_src.exists():
         if srt_dst.exists():
             srt_dst.unlink()
         srt_src.rename(srt_dst)
+    else:
+        print(f"      ⚠️  缺少 {srt_src.name}（只产出了 txt？）")
 
     # 清理多余格式
     for ext in (".vtt", ".tsv", ".json"):
@@ -447,7 +466,11 @@ def main() -> int:
         resolved_model = resolve_model(model_name, engine)
         run_transcribe(wav, output_dir, args.lang, engine, prefix, resolved_model, child_env)
 
-        txt_path, srt_path = organize_output(wav.stem, output_dir)
+        try:
+            txt_path, srt_path = organize_output(wav.stem, output_dir)
+        except RuntimeError as e:
+            sys.stderr.write(f"❌ {e}\n")
+            return 5
     finally:
         if wav.exists():
             wav.unlink()
