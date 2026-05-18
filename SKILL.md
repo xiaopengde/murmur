@@ -48,6 +48,15 @@ powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1
 
 安装完再跑一次 `doctor`，全 ✅ 才进入下一步。**不要假设用户已经装了 ffmpeg / uv / pandoc**——这是最常见的 onboarding 翻车点。
 
+**端到端验证**（首次安装强烈推荐，或排查问题时）：
+
+```bash
+bash scripts/doctor.sh --smoke                                    # macOS / Linux
+powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Smoke  # Windows
+```
+
+会自动生成 2 秒测试音频跑完整 pipeline（用 tiny 模型，首次约 75MB），通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
+
 ### 步骤 B — 询问默认输出格式（首次使用时）
 
 `transcribe.py` 自己会处理——首次跑时会停下来问：
@@ -95,7 +104,17 @@ python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--mode
 - `HF_ENDPOINT=https://hf-mirror.com`（模型下载走 hf-mirror）
 - `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉 mlx-whisper / whisper-ctranslate2 走清华）
 
-用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制开关。
+用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制单次开关。
+
+**持久化偏好**（避免每次都加 `--cn`）：
+
+```bash
+python scripts/transcribe.py --set-default-cn on    # 以后每次自动启用
+python scripts/transcribe.py --set-default-cn off   # 以后每次走官方源
+python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自动判断（默认）
+```
+
+也可以直接 `bash scripts/install-mac.sh --cn`（或 `-CN` for Windows），安装脚本会在结束时把偏好写进配置。
 
 **换更小的模型**（CPU 慢机器常用）：
 
@@ -116,19 +135,33 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 
 ### 步骤 D — LLM 清洗成可读 Markdown
 
-读 `转录原稿.txt`，按 [docs/prompts/clean-transcript.md](docs/prompts/clean-transcript.md) 里的 prompt **整段照做**。
+读 `转录原稿.txt`，按以下步骤执行（**不要跳过任何一步**）：
 
-**核心原则（必须遵守）**：
+**1. 组装 prompt**（两种方式选一）
 
-1. **忠实优先**——逐字稿不是会议纪要，不要润色、不要扩写、不要"提升表达"
-2. **修水词**——删掉无意义的"嗯/啊/那个/然后那个"等口头禅；同一个词重复 3 次以上压成 1 次
-3. **修 ASR 专有名词错误**——主动改并在文件头部列修正清单让用户能核对（清洗 prompt 里有常见错词表）
-4. **加 speaker 标签**——从上下文（提问 vs 回答的语气、第一/二人称）推断；面试场景标 `**面试官**：` / `**我**：`，会议场景标 `**A**：` / `**B**：`，**不确定的就不标**
-5. **加章节结构**——按话题切，标题是一句话概括内容，不要 "第一部分" 这种空标题
-6. **保留中英混写**——LLM as Judge / Rubric / prompt 等英文术语保留原样
-7. **不要编造**——原文没说的内容、推测的意图、补充的解释，**一个字都不要加**
+- **自动（推荐）**：
+  ```bash
+  python scripts/clean.py 转录原稿.txt [--scene interview|meeting|podcast]
+  # 输出组装好的 prompt，复制到 LLM 对话框即可
+  ```
+- **手动**：打开 `docs/prompts/clean-transcript.md`，把 `=== PROMPT 开始 ===` 到 `=== PROMPT 结束 ===` 之间的内容**原封不动**复制出来（不要总结、不要省略、不要用下面的简化版代替）。然后在末尾的占位符处贴入 `转录原稿.txt` 的全部内容。
 
-输出文件命名：`逐字稿-清洗版.md`，放在和音频同目录。
+**2. 补场景描述**（如已知，加在 prompt 最前面）
+
+- 面试录音：`这是一段中文面试录音，面试官代称"面试官"，应试者代称"我"。`
+- 会议录音：`这是一段工作会议录音，已知参与者：[姓名/代号]。`
+- 不确定则不加（LLM 会从上下文推断）
+
+**3. 发给 LLM 执行**（GPT-4o / Claude / Gemini / 国内大模型均可）
+
+- 原稿超过 **1.5 万字**：先让 LLM 列出章节结构，再逐章节批次清洗，最后拼成一个文件
+- 说话人 ≥ 3 人且混乱：先听前 30 秒录音，告诉 LLM 每个人的角色/声音特征
+
+**4. 对照「输出前自检清单」核查**
+
+拿到 LLM 输出后，过一遍 `docs/prompts/clean-transcript.md` 末尾的「输出前自检清单」（7 项）。有不合格项让 LLM 补改后再保存。
+
+**5. 保存为 `逐字稿-清洗版.md`**，放在和音频同目录。
 
 ### 步骤 E — 如果默认是 docx，转 docx
 
@@ -197,7 +230,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 转录文本反复 "X 点 X 点 X 点…" 或某句话整段重复 | `condition-on-previous-text` 未关 | 用本仓库的 transcribe.py 不会有这个问题；如果手动改过命令，加回 `--condition-on-previous-text False` |
 | 全程 "谢谢观看" 成段重复 | 音频开头有静音 + 没做 ffmpeg 预处理 | 用本仓库的 transcribe.py 自动处理；手动跑时记得先 `ffmpeg -ar 16000 -ac 1` |
 | 速度极慢 | 用成了 openai-whisper PyPI 版（纯 CPU + Python） | 确认走的是 mlx-whisper（Mac AS）或 whisper-ctranslate2（其他） |
-| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`（默认按时区/语言自动判断，可不传） |
+| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
 | `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |

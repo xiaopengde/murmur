@@ -162,7 +162,17 @@ $env:Path += ";C:\ffmpeg\bin"
 python scripts\transcribe.py 录音.m4a --cn
 ```
 
-脚本默认也会按系统语言/时区自动判断；显式 `-CN` / `--cn` / `--no-cn` 只是用来强制开关（PowerShell `install-windows.ps1` 用 `-CN`，Python `transcribe.py` 用 `--cn`）。
+脚本默认也会按系统语言/时区自动判断；显式 `-CN` / `--cn` / `--no-cn` 是单次强制开关（PowerShell `install-windows.ps1` 用 `-CN`，Python `transcribe.py` 用 `--cn`）。
+
+**持久化偏好**（避免每次都加 `--cn`）：
+
+```powershell
+python scripts\transcribe.py --set-default-cn on    # 以后每次自动启用
+python scripts\transcribe.py --set-default-cn off   # 以后每次走官方源
+python scripts\transcribe.py --set-default-cn auto  # 恢复按时区/语言自动判断
+```
+
+或者直接 `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`，安装结束时会自动写入偏好。
 
 想让所有命令长期生效（包括手动 `uvx` 调试），在 PowerShell 里设：
 

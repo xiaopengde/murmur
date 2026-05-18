@@ -33,11 +33,12 @@ EOF
 }
 
 # ---------- 解析参数 ----------
-CN_MODE=""   # "", "yes", "no"
+CN_MODE=""           # "", "yes", "no"  — 本次安装是否启用大陆镜像（含 auto-detect 结果）
+EXPLICIT_CN_FLAG=""  # "", "cn", "no-cn" — 用户是否显式传了 --cn / --no-cn
 for arg in "$@"; do
   case "$arg" in
-    --cn|--china)   CN_MODE="yes" ;;
-    --no-cn)        CN_MODE="no" ;;
+    --cn|--china)   CN_MODE="yes"; EXPLICIT_CN_FLAG="cn" ;;
+    --no-cn)        CN_MODE="no";  EXPLICIT_CN_FLAG="no-cn" ;;
     -h|--help)
       usage
       exit 0
@@ -172,6 +173,27 @@ echo ""
 echo "================================"
 ok "Murmur 安装完成！"
 echo "================================"
+echo ""
+
+# ---------- 持久化大陆镜像偏好（仅当用户显式 --cn / --no-cn 时）----------
+# auto-detect 的结果不写入配置——把"自动判断"的决策权留给 transcribe.py 每次跑时再决定，
+# 避免一次旅行到海外用 install 时的判断把偏好锁死。
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+case "$EXPLICIT_CN_FLAG" in
+  cn)
+    if command -v python3 >/dev/null 2>&1; then
+      python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn on >/dev/null 2>&1 \
+        && ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python3 scripts/transcribe.py --set-default-cn off）"
+    fi
+    ;;
+  no-cn)
+    if command -v python3 >/dev/null 2>&1; then
+      python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn off >/dev/null 2>&1 \
+        && ok "已记住偏好：以后 transcribe.py 默认走官方源（恢复自动：python3 scripts/transcribe.py --set-default-cn auto）"
+    fi
+    ;;
+esac
+
 echo ""
 echo "下一步："
 echo "  1) 跑体检：    bash scripts/doctor.sh"

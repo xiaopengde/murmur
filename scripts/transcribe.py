@@ -8,11 +8,14 @@
   python transcribe.py 录音.m4a --lang en             # 改语言
   python transcribe.py 录音.m4a --model medium        # 单次换模型（tiny/base/small/medium/large-v3...）
   python transcribe.py 录音.m4a --output-dir out      # 改输出目录
-  python transcribe.py 录音.m4a --cn                  # 强制启用大陆镜像（HF / PyPI）
-  python transcribe.py 录音.m4a --no-cn               # 强制禁用大陆镜像（默认按时区/语言自动判断）
+  python transcribe.py 录音.m4a --cn                  # 单次强制启用大陆镜像（HF / PyPI）
+  python transcribe.py 录音.m4a --no-cn               # 单次强制禁用大陆镜像
   python transcribe.py --set-default md               # 改默认格式
   python transcribe.py --set-default docx
   python transcribe.py --set-default-model medium     # 改默认模型
+  python transcribe.py --set-default-cn on            # 持久启用大陆镜像（每次自动注入）
+  python transcribe.py --set-default-cn off           # 持久禁用
+  python transcribe.py --set-default-cn auto          # 恢复默认：按时区/语言自动判断
   python transcribe.py --show-config                  # 看当前配置
 """
 
@@ -39,12 +42,14 @@ CN_PYPI_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
 # ---------- 大陆环境检测 ----------
 
 def detect_cn() -> bool:
-    """根据时区/语言判断是否在中国大陆。逻辑与 install-mac.sh / install-windows.ps1 对齐。
+    """根据时区/语言/系统区域判断是否在中国大陆。逻辑与 install-mac.sh / install-windows.ps1 对齐。
 
     任一命中即返回 True：
-      - macOS/Linux: /etc/localtime 链接到 Asia/Shanghai 等
-      - LANG / LC_ALL 是 zh_CN.*
-      - Windows: 时区 ID 含 "China Standard Time"
+      1. LANG / LC_ALL 是 zh_CN.*
+      2. macOS: 系统区域偏好 AppleLocale 为 zh_CN（覆盖 LANG=en_US 的国内开发者）
+      3. macOS/Linux: /etc/localtime 链接到 Asia/Shanghai 等
+      4. Windows: tzutil 显示 China Standard Time
+      5. 兜底：UTC+8 时区且 tzname 含 CST/China
     """
     # 1) locale 环境变量（跨平台最稳）；分开检查避免拼接边界产生意外匹配
     for var in ("LANG", "LC_ALL"):
@@ -52,7 +57,19 @@ def detect_cn() -> bool:
         if val.startswith("zh_cn") or val.startswith("zh-cn"):
             return True
 
-    # 2) macOS/Linux：/etc/localtime 软链
+    # 2) macOS：系统区域偏好（很多国内开发者把 LANG 设成 en_US 拿英文报错，但系统语言仍是中文）
+    if sys.platform == "darwin":
+        try:
+            loc = subprocess.run(
+                ["defaults", "read", "-g", "AppleLocale"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            if loc.startswith("zh_CN"):
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    # 3) macOS/Linux：/etc/localtime 软链
     localtime = Path("/etc/localtime")
     if localtime.is_symlink():
         try:
@@ -63,7 +80,7 @@ def detect_cn() -> bool:
             if keyword in target:
                 return True
 
-    # 3) Windows：用 tzutil 拿当前时区
+    # 4) Windows：用 tzutil 拿当前时区
     if sys.platform == "win32":
         try:
             tz = subprocess.run(
@@ -74,7 +91,44 @@ def detect_cn() -> bool:
         except (OSError, subprocess.SubprocessError):
             pass
 
+    # 5) 兜底：本地时区是 UTC+8 且 tzname 提到 CST/China —— 覆盖前 4 条都没命中的边角情况
+    try:
+        from datetime import datetime, timezone as _tz
+        import time as _time
+        local_tz = datetime.now(_tz.utc).astimezone().tzinfo
+        offset = local_tz.utcoffset(datetime.now()) if local_tz else None
+        if offset and int(offset.total_seconds()) == 8 * 3600:
+            tz_names = " ".join(name for name in _time.tzname if name).lower()
+            if "china" in tz_names or "cst" in tz_names or "中国" in tz_names:
+                return True
+    except Exception:
+        pass
+
     return False
+
+
+def resolve_cn_mode(cli_flag: bool | None) -> tuple[bool, str]:
+    """决定本次是否启用大陆镜像。
+
+    优先级：CLI flag > config.cn_mode > 自动检测。
+
+    返回 (启用?, 触发原因人话描述) —— 描述用于 print，方便用户看到为什么走/没走镜像。
+    """
+    if cli_flag is True:
+        return True, "--cn"
+    if cli_flag is False:
+        return False, "--no-cn"
+
+    pref = config.get_cn_mode()
+    if pref == "on":
+        return True, "配置 cn_mode=on（持久启用）"
+    if pref == "off":
+        return False, "配置 cn_mode=off（持久禁用）"
+
+    # auto：按时区/语言判断
+    if detect_cn():
+        return True, "auto：检测到中国大陆环境（时区/语言/区域）"
+    return False, "auto：未检测到中国大陆环境"
 
 
 def build_cn_env(base_env: dict[str, str]) -> dict[str, str]:
@@ -245,7 +299,11 @@ def run_transcribe(
 # ---------- 输出整理 ----------
 
 def organize_output(wav_stem: str, output_dir: Path) -> tuple[Path, Path]:
-    """把 mlx/whisper 的默认输出 rename 成中文名，删多余格式。返回 (txt路径, srt路径)。"""
+    """把 mlx/whisper 的默认输出 rename 成中文名，删多余格式。返回 (txt路径, srt路径)。
+
+    若源文件不存在（说明转录子进程虽 exit 0 但没产文件），抛 RuntimeError，
+    避免"转录完成 ✅"的虚假成功。
+    """
     print("[3/3] 整理输出文件 ...")
 
     txt_src = output_dir / f"{wav_stem}.txt"
@@ -254,14 +312,29 @@ def organize_output(wav_stem: str, output_dir: Path) -> tuple[Path, Path]:
     txt_dst = output_dir / "转录原稿.txt"
     srt_dst = output_dir / "字幕.srt"
 
+    if not txt_src.exists() and not srt_src.exists():
+        # 列一下实际产物，方便排查
+        actual = sorted(p.name for p in output_dir.iterdir()) if output_dir.exists() else []
+        raise RuntimeError(
+            f"转录子进程退出码 0，但找不到预期输出：{txt_src.name} / {srt_src.name}\n"
+            f"   输出目录实际内容：{actual}\n"
+            "   常见原因：mlx-whisper / whisper-ctranslate2 把文件写到了别的位置；"
+            "请用 --output-dir 显式指定，或检查脚本日志。"
+        )
+
     if txt_src.exists():
         if txt_dst.exists():
             txt_dst.unlink()
         txt_src.rename(txt_dst)
+    else:
+        print(f"      ⚠️  缺少 {txt_src.name}（只产出了 srt？）")
+
     if srt_src.exists():
         if srt_dst.exists():
             srt_dst.unlink()
         srt_src.rename(srt_dst)
+    else:
+        print(f"      ⚠️  缺少 {srt_src.name}（只产出了 txt？）")
 
     # 清理多余格式
     for ext in (".vtt", ".tsv", ".json"):
@@ -294,14 +367,22 @@ def main() -> int:
     parser.add_argument("--output-dir", default=None, help="输出目录（默认与音频同目录）")
     parser.add_argument(
         "--cn", dest="cn", action="store_true", default=None,
-        help="强制启用大陆镜像：给子进程注入 HF_ENDPOINT=hf-mirror.com 和 UV_INDEX_URL=清华 PyPI",
+        help="本次强制启用大陆镜像：给子进程注入 HF_ENDPOINT=hf-mirror.com 和 UV_INDEX_URL=清华 PyPI",
     )
     parser.add_argument(
         "--no-cn", dest="cn", action="store_false",
-        help="强制禁用大陆镜像（默认按时区/语言自动判断）",
+        help="本次强制禁用大陆镜像（覆盖 cn_mode 配置 / 自动检测）",
     )
     parser.add_argument("--set-default", choices=["md", "docx"], help="设置永久默认格式后退出")
     parser.add_argument("--set-default-model", help="设置永久默认模型后退出（清空：传空串 ''）")
+    parser.add_argument(
+        "--set-default-cn",
+        choices=["on", "off", "auto"],
+        help=(
+            "设置持久化的大陆镜像偏好后退出。on=每次自动启用 / off=每次禁用 / "
+            "auto=按时区/语言自动判断（默认）"
+        ),
+    )
     parser.add_argument("--show-config", action="store_true", help="显示当前配置后退出")
 
     args = parser.parse_args()
@@ -309,8 +390,18 @@ def main() -> int:
     # 配置管理子命令
     if args.show_config:
         cfg = config.load()
+        cn_mode = config.get_cn_mode()
         print(f"配置文件：{config.config_path()}")
         print(f"内容：{cfg or '(空)'}")
+        print()
+        print(f"大陆镜像偏好（cn_mode）：{cn_mode}")
+        if cn_mode == "auto":
+            detected = detect_cn()
+            print(f"  └ 当前自动检测结果：{'命中（启用）' if detected else '未命中（禁用）'}")
+        elif cn_mode == "on":
+            print("  └ 每次转录都会注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
+        else:
+            print("  └ 每次转录都走官方源；如需单次启用：加 --cn")
         return 0
 
     if getattr(args, "mirror", None):
@@ -320,7 +411,7 @@ def main() -> int:
             print("   PyPI:        https://pypi.tuna.tsinghua.edu.cn/simple/")
             print("   HuggingFace: https://hf-mirror.com")
         else:
-            print("✅ 已关闭镜像加速，使用默认源")
+            print("  └ 每次转录都走官方源；如需单次启用：加 --cn")
         return 0
 
     if args.set_default:
@@ -339,6 +430,17 @@ def main() -> int:
             print(f"✅ 默认模型已改为：{args.set_default_model}")
         return 0
 
+    if args.set_default_cn:
+        config.set_cn_mode(args.set_default_cn)
+        print(f"✅ 大陆镜像偏好已改为：{args.set_default_cn}")
+        if args.set_default_cn == "on":
+            print("   每次转录都会自动注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
+        elif args.set_default_cn == "off":
+            print("   每次转录都走官方源；如需单次启用：加 --cn")
+        else:
+            print("   每次转录会按时区/语言自动判断；如需强制：加 --cn 或 --no-cn")
+        return 0
+
     # 转录主流程
     if not args.audio:
         parser.print_help()
@@ -352,10 +454,6 @@ def main() -> int:
 
     check_prereqs()
 
-    # 镜像加速：如果配置了 cn 镜像，注入环境变量
-    if config.apply_mirror_env():
-        print("ℹ️  已启用国内镜像加速（关闭：python transcribe.py --mirror off）")
-
     # 决定输出格式：CLI flag 优先 > config 默认 > 首次询问
     fmt = args.format
     if fmt is None:
@@ -367,14 +465,14 @@ def main() -> int:
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else audio_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 决定是否启用大陆镜像：CLI flag 优先 > 自动检测
-    if args.cn is None:
-        cn_mode = detect_cn()
-        if cn_mode:
-            print("ℹ️  检测到中国大陆环境（时区/语言），将自动启用 HuggingFace / PyPI 镜像。")
-            print("   如需关闭：加 --no-cn")
-    else:
-        cn_mode = args.cn
+    # 决定是否启用大陆镜像：CLI flag > config.cn_mode > 自动检测
+    cn_mode, cn_reason = resolve_cn_mode(args.cn)
+    if cn_mode:
+        print(f"ℹ️  本次启用大陆镜像（{cn_reason}）")
+        print("   持久化偏好：python transcribe.py --set-default-cn on|off|auto")
+    elif cn_reason.startswith("auto"):
+        # auto 模式且未命中：低调提示，让国内用户知道有这个选项
+        print(f"ℹ️  本次走官方源（{cn_reason}）；如需启用：--cn 或 --set-default-cn on")
 
     # 子进程的 env：从当前 env 继承；CN 模式下注入镜像（不覆盖用户已设值）
     child_env = dict(os.environ)
@@ -393,7 +491,11 @@ def main() -> int:
         resolved_model = resolve_model(model_name, engine)
         run_transcribe(wav, output_dir, args.lang, engine, prefix, resolved_model, child_env)
 
-        txt_path, srt_path = organize_output(wav.stem, output_dir)
+        try:
+            txt_path, srt_path = organize_output(wav.stem, output_dir)
+        except RuntimeError as e:
+            sys.stderr.write(f"❌ {e}\n")
+            return 5
     finally:
         if wav.exists():
             wav.unlink()

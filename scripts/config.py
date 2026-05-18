@@ -18,13 +18,12 @@ import sys
 from pathlib import Path
 
 VALID_FORMATS = {"md", "docx"}
-VALID_MIRRORS = {"cn", "off"}
 
-# 国内镜像地址
-CHINA_MIRRORS = {
-    "UV_INDEX_URL": "https://pypi.tuna.tsinghua.edu.cn/simple/",
-    "HF_ENDPOINT": "https://hf-mirror.com",
-}
+# 大陆镜像偏好的三种取值：
+#   on   = 每次转录都强制启用 HF/PyPI 镜像
+#   off  = 每次转录都强制走官方源
+#   auto = 由 transcribe.py 按时区/语言自动判断（默认）
+VALID_CN_MODES = {"on", "off", "auto"}
 
 # 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
 # （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
@@ -54,9 +53,24 @@ def load() -> dict:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        cfg = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(cfg, dict):
+        return {}
+    # 迁移：把已废弃的 mirror=cn/off 平迁到 cn_mode=on/off；之后剥离 mirror key
+    if "mirror" in cfg:
+        old = cfg.pop("mirror")
+        if "cn_mode" not in cfg:
+            if old == "cn":
+                cfg["cn_mode"] = "on"
+            elif old == "off":
+                cfg["cn_mode"] = "off"
+        try:
+            save(cfg)
+        except OSError:
+            pass  # 迁移失败不阻塞读取
+    return cfg
 
 
 def save(cfg: dict) -> None:
@@ -128,30 +142,24 @@ def prompt_for_default_format() -> str:
     return fmt
 
 
-# ---------- 镜像加速 ----------
+# ---------- 大陆镜像偏好（cn_mode） ----------
 
-def get_mirror() -> str | None:
-    """返回当前配置的镜像区域（'cn' 或 None）。"""
+def get_cn_mode() -> str:
+    """读取持久化的大陆镜像偏好。返回 'on' / 'off' / 'auto'（默认 'auto'）。
+
+    决策语义（在 transcribe.py 里实现）：
+      - on   → 每次都启用 HF/PyPI 镜像
+      - off  → 每次都走官方源
+      - auto → 调 detect_cn() 按时区/语言判断
+    """
     cfg = load()
-    m = cfg.get("mirror")
-    return m if m in VALID_MIRRORS and m != "off" else None
+    mode = cfg.get("cn_mode")
+    return mode if mode in VALID_CN_MODES else "auto"
 
 
-def set_mirror(region: str) -> None:
-    """设置镜像区域（'cn' 或 'off'）。"""
-    if region not in VALID_MIRRORS:
-        raise ValueError(f"镜像必须是 {VALID_MIRRORS} 之一，收到：{region!r}")
+def set_cn_mode(mode: str) -> None:
+    if mode not in VALID_CN_MODES:
+        raise ValueError(f"cn_mode 必须是 {VALID_CN_MODES} 之一，收到：{mode!r}")
     cfg = load()
-    cfg["mirror"] = region
+    cfg["cn_mode"] = mode
     save(cfg)
-
-
-def apply_mirror_env() -> bool:
-    """如果配置了国内镜像，把对应环境变量注入 os.environ。返回是否注入了。"""
-    mirror = get_mirror()
-    if mirror == "cn":
-        for key, val in CHINA_MIRRORS.items():
-            if key not in os.environ:
-                os.environ[key] = val
-        return True
-    return False
