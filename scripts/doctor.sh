@@ -63,7 +63,7 @@ echo ""
 # ---------- ffmpeg ----------
 if command -v ffmpeg >/dev/null 2>&1; then
   VER=$(ffmpeg -version 2>&1 | head -n1 | awk '{print $3}')
-  ok "ffmpeg 已安装（$VER）"
+  ok "ffmpeg 已安装（${VER}）"
 else
   err "ffmpeg 未安装"
   if [[ "$OS" == "Darwin" ]]; then
@@ -78,7 +78,7 @@ fi
 # ---------- uv / uvx ----------
 if command -v uvx >/dev/null 2>&1; then
   VER=$(uvx --version 2>&1 | awk '{print $2}')
-  ok "uv 已安装（$VER）"
+  ok "uv 已安装（${VER}）"
 else
   err "uv 未安装"
   if [[ "$OS" == "Darwin" ]]; then
@@ -91,7 +91,7 @@ fi
 # ---------- pandoc ----------
 if command -v pandoc >/dev/null 2>&1; then
   VER=$(pandoc --version 2>&1 | head -n1 | awk '{print $2}')
-  ok "pandoc 已安装（$VER）—— md→docx 转换可用"
+  ok "pandoc 已安装（${VER}）—— md→docx 转换可用"
 else
   warn "pandoc 未安装（仅当默认输出 docx 时需要）"
   if [[ "$OS" == "Darwin" ]]; then
@@ -108,9 +108,9 @@ if command -v python3 >/dev/null 2>&1; then
   MAJOR=$(echo "$VER" | cut -d. -f1)
   MINOR=$(echo "$VER" | cut -d. -f2)
   if [[ "$MAJOR" -ge 3 ]] && [[ "$MINOR" -ge 9 ]]; then
-    ok "python3 已安装（$VER）"
+    ok "python3 已安装（${VER}）"
   else
-    warn "python3 版本偏低（$VER），建议 3.9+"
+    warn "python3 版本偏低（${VER}），建议 3.9+"
   fi
 else
   err "python3 未安装"
@@ -126,7 +126,7 @@ HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
 if [[ -d "$HF_CACHE" ]]; then
   SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | awk '{print $1}')
   if find "$HF_CACHE" -name "*whisper*large-v3*" 2>/dev/null | grep -q .; then
-    ok "HuggingFace 缓存已含 whisper-large-v3 模型（$SIZE）"
+    ok "HuggingFace 缓存已含 whisper-large-v3 模型（${SIZE}）"
   else
     info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
   fi
@@ -141,7 +141,7 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
   CN_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('cn_mode','auto'))" 2>/dev/null || echo "auto")
-  ok "Murmur 配置已存在（默认输出格式：$FORMAT）"
+  ok "Murmur 配置已存在（默认输出格式：${FORMAT}）"
   case "$CN_MODE" in
     on)
       ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）"
@@ -209,12 +209,12 @@ if [[ "$OS" == "Darwin" ]] && command -v say >/dev/null 2>&1; then
     # Tingting 可能没装，退回默认嗓
     say "Murmur smoke test" -o "$TMP_AIFF" 2>/dev/null || {
       err "say 命令失败"
-      exit 2
+      SMOKE_KEEP="yes"; exit 2
     }
   fi
   ffmpeg -y -i "$TMP_AIFF" -ar 44100 -ac 1 -c:a aac "$SMOKE_AUDIO" >/dev/null 2>&1 || {
     err "ffmpeg 转换 aiff → m4a 失败"
-    exit 2
+    SMOKE_KEEP="yes"; exit 2
   }
   rm -f "$TMP_AIFF"
 else
@@ -222,7 +222,7 @@ else
   # 注：sine 在 whisper 上不会出文本，但 pipeline 跑通即 PASS
   ffmpeg -y -f lavfi -i "sine=frequency=440:duration=2" -ar 44100 -ac 1 -c:a aac "$SMOKE_AUDIO" >/dev/null 2>&1 || {
     err "ffmpeg lavfi 生成测试音频失败"
-    exit 2
+    SMOKE_KEEP="yes"; exit 2
   }
 fi
 ok "测试音频已生成：$SMOKE_AUDIO ($(du -h "$SMOKE_AUDIO" | awk '{print $1}'))"
@@ -236,7 +236,7 @@ if ! python3 "$SCRIPT_DIR/transcribe.py" "$SMOKE_AUDIO" \
        >"$SMOKE_DIR/transcribe.log" 2>&1; then
   err "transcribe.py 失败（exit=$?）。日志末尾："
   tail -20 "$SMOKE_DIR/transcribe.log" | sed 's/^/    /'
-  exit 3
+  SMOKE_KEEP="yes"; exit 3
 fi
 END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
