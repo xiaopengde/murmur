@@ -47,29 +47,10 @@ for arg in "$@"; do
   esac
 done
 
-# ---------- 自动检测大陆环境 ----------
-# 仅在用户没显式指定时检测；命中任一就建议启用镜像
+# ---------- 自动检测大陆环境（统一走 scripts/cn_env.py）----------
 detect_cn() {
-  # 时区
-  if [[ -L /etc/localtime ]]; then
-    local tz
-    tz=$(readlink /etc/localtime 2>/dev/null || true)
-    case "$tz" in
-      *Shanghai*|*Chongqing*|*Urumqi*|*Harbin*) return 0 ;;
-    esac
-  fi
-  # locale / 语言（分别检查，避免拼接导致 "en_US.UTF-8zh_CN.UTF-8" 这类假阴性）
-  case "${LANG:-}" in zh_CN*|zh-CN*) return 0 ;; esac
-  case "${LC_ALL:-}" in zh_CN*|zh-CN*) return 0 ;; esac
-  # 系统偏好设置（macOS）
-  if command -v defaults >/dev/null 2>&1; then
-    local loc
-    loc=$(defaults read -g AppleLocale 2>/dev/null || true)
-    case "$loc" in
-      zh_CN*) return 0 ;;
-    esac
-  fi
-  return 1
+  command -v python3 >/dev/null 2>&1 \
+    && python3 "$SCRIPT_DIR/cn_env.py" --detect >/dev/null 2>&1
 }
 
 if [[ -z "$CN_MODE" ]]; then

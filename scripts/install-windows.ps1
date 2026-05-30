@@ -21,17 +21,19 @@ function Write-Info  { param($msg) Write-Host "ℹ️  $msg" -ForegroundColor Cy
 
 function Test-Cmd { param($name) $null -ne (Get-Command $name -ErrorAction SilentlyContinue) }
 
-# ---------- 自动检测大陆环境 ----------
+# ---------- 自动检测大陆环境（统一走 scripts/cn_env.py）----------
 function Test-CnEnvironment {
-    try {
-        $culture = (Get-Culture).Name
-        if ($culture -like "zh-CN*") { return $true }
-    } catch {}
-    try {
-        $tz = (Get-TimeZone).Id
-        if ($tz -like "*China Standard Time*") { return $true }
-    } catch {}
-    return $false
+    $pythonCmd = $null
+    foreach ($candidate in @("python", "python3", "py")) {
+        if (Test-Cmd $candidate) {
+            $pythonCmd = $candidate
+            break
+        }
+    }
+    if (-not $pythonCmd) { return $false }
+    $cnEnvPy = Join-Path $scriptDir "cn_env.py"
+    & $pythonCmd $cnEnvPy --detect 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
 }
 
 $useCnMirror = $false

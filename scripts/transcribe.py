@@ -31,120 +31,16 @@ import threading
 import time
 from pathlib import Path
 
-# 让本脚本无论怎么跑都能 import config
+# 让本脚本无论怎么跑都能 import 同目录模块
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
-
-# 大陆镜像默认值（与安装脚本保持一致）
-CN_HF_ENDPOINT = "https://hf-mirror.com"
-CN_PYPI_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
-
-# ---------- 大陆环境检测 ----------
-
-def detect_cn() -> bool:
-    """根据时区/语言/系统区域判断是否在中国大陆。逻辑与 install-mac.sh / install-windows.ps1 对齐。
-
-    任一命中即返回 True：
-      1. LANG / LC_ALL 是 zh_CN.*
-      2. macOS: 系统区域偏好 AppleLocale 为 zh_CN（覆盖 LANG=en_US 的国内开发者）
-      3. macOS/Linux: /etc/localtime 链接到 Asia/Shanghai 等
-      4. Windows: tzutil 显示 China Standard Time
-      5. 兜底：UTC+8 时区且 tzname 含 CST/China
-    """
-    # 1) locale 环境变量（跨平台最稳）；分开检查避免拼接边界产生意外匹配
-    for var in ("LANG", "LC_ALL"):
-        val = os.environ.get(var, "").lower()
-        if val.startswith("zh_cn") or val.startswith("zh-cn"):
-            return True
-
-    # 2) macOS：系统区域偏好（很多国内开发者把 LANG 设成 en_US 拿英文报错，但系统语言仍是中文）
-    if sys.platform == "darwin":
-        try:
-            loc = subprocess.run(
-                ["defaults", "read", "-g", "AppleLocale"],
-                capture_output=True, text=True, timeout=3,
-            ).stdout.strip()
-            if loc.startswith("zh_CN"):
-                return True
-        except (OSError, subprocess.SubprocessError):
-            pass
-
-    # 3) macOS/Linux：/etc/localtime 软链
-    localtime = Path("/etc/localtime")
-    if localtime.is_symlink():
-        try:
-            target = os.readlink(localtime)
-        except OSError:
-            target = ""
-        for keyword in ("Shanghai", "Chongqing", "Urumqi", "Harbin"):
-            if keyword in target:
-                return True
-
-    # 4) Windows：用 tzutil 拿当前时区
-    if sys.platform == "win32":
-        try:
-            tz = subprocess.run(
-                ["tzutil", "/g"], capture_output=True, text=True, timeout=3
-            ).stdout.strip()
-            if "China Standard Time" in tz:
-                return True
-        except (OSError, subprocess.SubprocessError):
-            pass
-
-    # 5) 兜底：本地时区是 UTC+8 且 tzname 提到 CST/China —— 覆盖前 4 条都没命中的边角情况
-    try:
-        from datetime import datetime, timezone as _tz
-        import time as _time
-        local_tz = datetime.now(_tz.utc).astimezone().tzinfo
-        offset = local_tz.utcoffset(datetime.now()) if local_tz else None
-        if offset and int(offset.total_seconds()) == 8 * 3600:
-            tz_names = " ".join(name for name in _time.tzname if name).lower()
-            if "china" in tz_names or "cst" in tz_names or "中国" in tz_names:
-                return True
-    except Exception:
-        pass
-
-    return False
-
-
-def resolve_cn_mode(cli_flag: bool | None) -> tuple[bool, str]:
-    """决定本次是否启用大陆镜像。
-
-    优先级：CLI flag > config.cn_mode > 自动检测。
-
-    返回 (启用?, 触发原因人话描述) —— 描述用于 print，方便用户看到为什么走/没走镜像。
-    """
-    if cli_flag is True:
-        return True, "--cn"
-    if cli_flag is False:
-        return False, "--no-cn"
-
-    pref = config.get_cn_mode()
-    if pref == "on":
-        return True, "配置 cn_mode=on（持久启用）"
-    if pref == "off":
-        return False, "配置 cn_mode=off（持久禁用）"
-
-    # auto：按时区/语言判断
-    if detect_cn():
-        return True, "auto：检测到中国大陆环境（时区/语言/区域）"
-    return False, "auto：未检测到中国大陆环境"
-
-
-def build_cn_env(base_env: dict[str, str]) -> dict[str, str]:
-    """在 base_env 基础上注入大陆镜像变量；用户已显式设置的不覆盖。
-
-    - HF_ENDPOINT  → hf-mirror.com（影响模型下载）
-    - UV_INDEX_URL → 清华 PyPI 镜像（影响 uvx 首次拉取 mlx-whisper / whisper-ctranslate2）
-    - UV_HTTP_TIMEOUT → 调大一点，避免国内偶发慢网导致 uv 自己 timeout
-    """
-    env = dict(base_env)
-    if not env.get("HF_ENDPOINT"):
-        env["HF_ENDPOINT"] = CN_HF_ENDPOINT
-    if not env.get("UV_INDEX_URL") and not env.get("UV_DEFAULT_INDEX"):
-        env["UV_INDEX_URL"] = CN_PYPI_INDEX
-    env.setdefault("UV_HTTP_TIMEOUT", "120")
-    return env
+from cn_env import (  # noqa: E402
+    CN_HF_ENDPOINT,
+    CN_PYPI_INDEX,
+    build_cn_env,
+    detect_cn,
+    resolve_cn_mode,
+)
 
 
 # ---------- 引擎选择 ----------

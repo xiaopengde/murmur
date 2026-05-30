@@ -232,6 +232,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 9. Linux（Ubuntu/Debian/Fedora/Arch）
 
+**推荐一键安装**（自动检测大陆环境、配置 PyPI/HF 镜像偏好）：
+
+```bash
+bash scripts/install-linux.sh
+```
+
+手动安装：
+
 ```bash
 # Ubuntu / Debian
 sudo apt update && sudo apt install ffmpeg pandoc python3

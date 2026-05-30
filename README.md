@@ -152,7 +152,9 @@ murmur/
 ├── scripts/
 │   ├── doctor.sh / doctor.ps1         ← 环境体检
 │   ├── install-mac.sh                 ← macOS 一键安装
+│   ├── install-linux.sh               ← Linux / WSL 一键安装
 │   ├── install-windows.ps1            ← Windows 一键安装
+│   ├── cn_env.py                      ← 大陆环境检测（install/doctor/transcribe 共用）
 │   ├── transcribe.py                  ← 主入口（跨平台）
 │   ├── md2docx.py                     ← Markdown → Word
 │   └── config.py                      ← 默认格式配置管理

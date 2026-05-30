@@ -165,15 +165,23 @@ try {
 
     # 2) 跑 transcribe.py
     Write-Info "[2/3] 跑 transcribe.py（--model tiny --format md）..."
-    $start = Get-Date
-    $logFile = Join-Path $smokeDir "transcribe.log"
-    $py = Start-Process -FilePath $pythonCmd -ArgumentList @(
+    $smokeArgs = @(
         (Join-Path $scriptDir "transcribe.py"),
         $smokeAudio,
         "--model", "tiny",
         "--format", "md",
         "--output-dir", $smokeDir
-    ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    )
+    $cnEnvPy = Join-Path $scriptDir "cn_env.py"
+    & $pythonCmd $cnEnvPy --should-mirror 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $smokeArgs += "--cn"
+        Write-Info "    检测到应启用大陆镜像，smoke 测试加 --cn"
+    }
+    $start = Get-Date
+    $logFile = Join-Path $smokeDir "transcribe.log"
+    $py = Start-Process -FilePath $pythonCmd -ArgumentList $smokeArgs `
+        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
     $elapsed = [int]((Get-Date) - $start).TotalSeconds
     if ($py.ExitCode -ne 0) {
         Write-Err "transcribe.py 失败（exit=$($py.ExitCode)）。日志末尾："
