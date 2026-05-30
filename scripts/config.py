@@ -17,6 +17,8 @@ import os
 import sys
 from pathlib import Path
 
+from models import DEFAULT_MODEL, KNOWN_MODELS, ONBOARDING_MODEL_CHOICES, is_valid_default_model
+
 VALID_FORMATS = {"md", "docx"}
 
 # 大陆镜像偏好的三种取值：
@@ -24,44 +26,6 @@ VALID_FORMATS = {"md", "docx"}
 #   off  = 每次转录都强制走官方源
 #   auto = 由 transcribe.py 按时区/语言自动判断（默认）
 VALID_CN_MODES = {"on", "off", "auto"}
-
-# 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
-# （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
-# 不在这个列表里的值也允许（直接透传），方便高级用户用完整 HF repo 名。
-DEFAULT_MODEL = "large-v3-turbo"
-
-KNOWN_MODELS = {
-    "tiny", "base", "small", "medium",
-    "large-v1", "large-v2", "large-v3", "large-v3-turbo",
-}
-
-# 首次 onboarding 时给 agent「候选框」用的精简模型列表（别一次塞太多）
-ONBOARDING_MODEL_CHOICES: tuple[dict[str, str], ...] = (
-    {
-        "id": "large-v3-turbo",
-        "label": "large-v3-turbo（推荐）",
-        "description": "质量高、下载约 1.5GB，默认首选",
-        "download_hint": "约 1.5GB",
-    },
-    {
-        "id": "large-v3",
-        "label": "large-v3",
-        "description": "最高质量，下载约 2.9GB，磁盘/网络充足时选",
-        "download_hint": "约 2.9GB",
-    },
-    {
-        "id": "medium",
-        "label": "medium",
-        "description": "CPU 机器更友好，下载约 1GB，质量略降",
-        "download_hint": "约 1GB",
-    },
-    {
-        "id": "small",
-        "label": "small",
-        "description": "更快更省空间（约 500MB），适合试跑",
-        "download_hint": "约 500MB",
-    },
-)
 
 ONBOARDING_FORMAT_CHOICES: tuple[dict[str, str], ...] = (
     {
@@ -113,13 +77,7 @@ def load() -> dict:
             save(cfg)
         except OSError:
             pass  # 迁移失败不阻塞读取
-    # 迁移：老用户只有 default_format、没有 onboarding_complete → 视为已完成
-    if cfg.get("default_format") in VALID_FORMATS and not cfg.get("onboarding_complete"):
-        cfg["onboarding_complete"] = True
-        try:
-            save(cfg)
-        except OSError:
-            pass
+    # 不再把旧配置（只有 default_format）自动视为完成；必须补选 default_model。
     return cfg
 
 
@@ -163,7 +121,15 @@ def set_default_model(model: str) -> None:
 
 def needs_onboarding() -> bool:
     """是否尚未完成首次 onboarding（默认格式 + 默认模型）。"""
-    return not load().get("onboarding_complete")
+    cfg = load()
+    fmt = cfg.get("default_format")
+    model = cfg.get("default_model")
+    return not (
+        cfg.get("onboarding_complete") is True
+        and fmt in VALID_FORMATS
+        and isinstance(model, str)
+        and is_valid_default_model(model)
+    )
 
 
 def _onboarding_model_ids() -> set[str]:
@@ -184,10 +150,14 @@ def onboarding_payload() -> dict:
         model_options.append(item)
     return {
         "needs_onboarding": needs_onboarding(),
+        "must_ask_user": True,
+        "do_not_choose_for_user": True,
+        "do_not_run_example_without_user_choice": True,
         "config_path": str(config_path()),
         "agent_instructions": (
             "Use your AskQuestion / 候选框 tool to let the user pick default_format "
-            "and default_model. Do NOT choose for the user. Then run apply.command."
+            "and default_model. Do NOT choose for the user. Do NOT run the example "
+            "without an explicit user choice. Then run apply.command."
         ),
         "questions": [
             {
@@ -208,6 +178,7 @@ def onboarding_payload() -> dict:
                 "python scripts/transcribe.py --init-defaults "
                 "--format <md|docx> --set-default-model <model>"
             ),
+            "example_is_not_a_default_answer": True,
             "example": (
                 f"python scripts/transcribe.py --init-defaults "
                 f"--format md --set-default-model {DEFAULT_MODEL}"
@@ -238,7 +209,7 @@ def emit_onboarding_required() -> None:
     payload = onboarding_payload()
     sys.stderr.write(
         "❌ 首次使用 Murmur：请先完成 onboarding（默认格式 + 默认离线模型）。\n"
-        "   Agent：用 AskQuestion / 候选框让用户选择，再运行 apply.example（见下方 JSON）。\n"
+        "   Agent：必须用 AskQuestion / 候选框让用户选择，再运行 apply.command；不要直接跑 example。\n"
         "   或单独查看：python scripts/transcribe.py --onboarding\n"
     )
     print(json.dumps(payload, ensure_ascii=False, indent=2))

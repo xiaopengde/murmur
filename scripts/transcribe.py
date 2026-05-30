@@ -2,7 +2,7 @@
 """Murmur — 跨平台本地音频转录主入口。
 
 用法：
-  python transcribe.py 录音.m4a                       # 用默认配置（首次会问）
+  python transcribe.py 录音.m4a                       # 用默认配置（首次需先 --onboarding）
   python transcribe.py 录音.m4a --format md           # 单次覆盖输出格式
   python transcribe.py 录音.m4a --format docx
   python transcribe.py 录音.m4a --lang en             # 改语言
@@ -25,401 +25,21 @@ from __future__ import annotations
 
 import argparse
 import os
-import platform
-import shutil
-import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
 
 # 让本脚本无论怎么跑都能 import 同目录模块
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
-from cn_env import (  # noqa: E402
-    CN_HF_ENDPOINT,
-    CN_PYPI_INDEX,
-    build_cn_env,
-    detect_cn,
-    resolve_cn_mode,
+from cn_env import build_cn_env, detect_cn, resolve_cn_mode  # noqa: E402
+from models import resolve_model  # noqa: E402
+from pipeline import (  # noqa: E402
+    check_prereqs,
+    detect_engine,
+    organize_output,
+    preprocess_audio,
+    run_transcribe,
 )
-
-
-# ---------- 引擎选择 ----------
-
-def detect_engine() -> tuple[str, list[str]]:
-    """根据平台/芯片返回 (引擎名, uvx 命令前缀)。"""
-    system = platform.system()
-    machine = platform.machine().lower()
-
-    if system == "Darwin" and machine in ("arm64", "aarch64"):
-        # Apple Silicon → mlx-whisper（GPU 加速）
-        return "mlx-whisper", ["uvx", "--from", "mlx-whisper", "mlx_whisper"]
-    # 其他全部走 whisper-ctranslate2（CPU 友好；有 CUDA 时自动用）
-    return "whisper-ctranslate2", ["uvx", "whisper-ctranslate2"]
-
-
-# ---------- 模型名解析 ----------
-
-def model_download_size_hint(model: str) -> str:
-    """根据模型名给用户一个大致的首次下载体积提示。"""
-    m = model.lower()
-    if "turbo" in m:
-        return "约 1.5GB"
-    if "large" in m:
-        return "约 2.9GB"
-    if "medium" in m:
-        return "约 1GB"
-    if "small" in m:
-        return "约 500MB"
-    if "tiny" in m or "base" in m:
-        return "约 75–150MB"
-    return "视模型而定"
-
-
-def model_download_bytes_hint(model: str) -> int | None:
-    """返回模型大致字节数，供下载进度百分比估算；未知则 None。"""
-    m = model.lower()
-    gib = 1024**3
-    if "turbo" in m:
-        return int(1.5 * gib)
-    if "large" in m:
-        return int(2.9 * gib)
-    if "medium" in m:
-        return int(1.0 * gib)
-    if "small" in m:
-        return int(0.5 * gib)
-    if "tiny" in m:
-        return int(75 * 1024**2)
-    if "base" in m:
-        return int(150 * 1024**2)
-    return None
-
-
-def _hf_hub_cache_dir(env: dict[str, str]) -> Path:
-    hf_home = env.get("HF_HOME") or os.environ.get("HF_HOME")
-    if hf_home:
-        return Path(hf_home) / "hub"
-    return Path.home() / ".cache" / "huggingface" / "hub"
-
-
-def _dir_size_bytes(path: Path) -> int:
-    if not path.exists():
-        return 0
-    total = 0
-    try:
-        for p in path.rglob("*"):
-            if p.is_file():
-                try:
-                    total += p.stat().st_size
-                except OSError:
-                    pass
-    except OSError:
-        pass
-    return total
-
-
-def _format_byte_size(num_bytes: int) -> str:
-    if num_bytes >= 1024**3:
-        return f"{num_bytes / 1024**3:.1f} GB"
-    return f"{num_bytes / 1024**2:.0f} MB"
-
-
-def _prepare_transcribe_child_env(env: dict[str, str]) -> dict[str, str]:
-    """让子进程在非 TTY（agent 终端）下也能尽量实时刷出日志/进度。"""
-    child = dict(env)
-    child["PYTHONUNBUFFERED"] = "1"
-    child.pop("HF_HUB_DISABLE_PROGRESS_BARS", None)
-    return child
-
-
-class _TranscribeProgress:
-    """跨线程共享的转录阶段状态（下载 vs 推理）。"""
-
-    def __init__(self) -> None:
-        self.stop = threading.Event()
-        self.downloading = False
-        self.download_done = False
-        self.last_cache_bytes = 0
-
-
-def _should_relay_child_line(line: str) -> bool:
-    """过滤并转发对 agent/用户有用的子进程输出行。"""
-    low = line.lower()
-    if any(
-        kw in low
-        for kw in (
-            "download", "fetch", "pull", "snapshot", "install", "resolved",
-            "error", "warning", "mb/s", "kb/s", "it/s", "transcrib",
-        )
-    ):
-        return True
-    return "%" in line or "━" in line or "█" in line or "▌" in line
-
-
-def _monitor_hf_cache(
-    progress: _TranscribeProgress,
-    env: dict[str, str],
-    baseline_bytes: int,
-    total_hint: int | None,
-) -> None:
-    """监控 HuggingFace 缓存目录体积变化，在非 TTY 下补一份可读的下载进度。"""
-    hub = _hf_hub_cache_dir(env)
-    stable_rounds = 0
-    while not progress.stop.wait(3):
-        current = _dir_size_bytes(hub)
-        delta = max(0, current - baseline_bytes)
-        if delta > 2 * 1024 * 1024:
-            progress.downloading = True
-            stable_rounds = 0
-        if not progress.downloading or progress.download_done:
-            continue
-        if current == progress.last_cache_bytes:
-            stable_rounds += 1
-            if stable_rounds >= 5:
-                progress.download_done = True
-                print("      📥 模型下载完成，开始推理...", flush=True)
-            continue
-        stable_rounds = 0
-        progress.last_cache_bytes = current
-        pct = ""
-        if total_hint and total_hint > 0:
-            pct = f" ({min(99, int(delta * 100 / total_hint))}%)"
-        total_part = f" / ~{_format_byte_size(total_hint)}" if total_hint else ""
-        print(f"      📥 模型下载中: {_format_byte_size(delta)}{total_part}{pct}", flush=True)
-
-
-def _inference_heartbeat(progress: _TranscribeProgress) -> None:
-    t0 = time.monotonic()
-    while not progress.stop.wait(30):
-        if progress.downloading and not progress.download_done:
-            continue
-        elapsed = int(time.monotonic() - t0)
-        m, s = divmod(elapsed, 60)
-        print(f"      ⏳ 推理中... 已用时 {m}:{s:02d}", flush=True)
-
-
-def _relay_subprocess_output(proc: subprocess.Popen[str], progress: _TranscribeProgress) -> None:
-    assert proc.stdout is not None
-    try:
-        for raw in proc.stdout:
-            line = raw.rstrip("\n\r")
-            if not line.strip():
-                continue
-            if _should_relay_child_line(line):
-                print(f"      {line}", flush=True)
-            low = line.lower()
-            if progress.downloading and ("100%" in line or "complete" in low or "done" in low):
-                progress.download_done = True
-    except OSError:
-        pass
-
-
-def run_subprocess_with_progress(cmd: list[str], env: dict[str, str], model: str) -> int:
-    """启动转录子进程，实时转发日志并监控首次模型下载进度。"""
-    child_env = _prepare_transcribe_child_env(env)
-    baseline = _dir_size_bytes(_hf_hub_cache_dir(child_env))
-    total_hint = model_download_bytes_hint(model)
-    progress = _TranscribeProgress()
-
-    proc = subprocess.Popen(
-        cmd,
-        env=child_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        errors="replace",
-    )
-
-    threads = [
-        threading.Thread(
-            target=_monitor_hf_cache,
-            args=(progress, child_env, baseline, total_hint),
-            daemon=True,
-        ),
-        threading.Thread(target=_inference_heartbeat, args=(progress,), daemon=True),
-        threading.Thread(target=_relay_subprocess_output, args=(proc, progress), daemon=True),
-    ]
-    for t in threads:
-        t.start()
-
-    returncode = proc.wait()
-    progress.stop.set()
-    for t in threads:
-        t.join(timeout=2)
-    return returncode
-
-
-def resolve_model(name: str | None, engine: str) -> str:
-    """把用户给的模型名（或 None）按引擎映射成对应实参。
-
-    规则：
-      - None → 各引擎的内置 large-v3-turbo 默认
-      - 已在 KNOWN_MODELS 里的短名 → 按引擎映射：
-          mlx-whisper      → mlx-community/whisper-<name>-mlx
-          whisper-ctranslate2 → 原样（large-v3-turbo / medium / ...）
-      - 其它字符串 → 原样透传（高级用户用完整 HF repo 名时走这条）
-    """
-    if not name:
-        default = config.DEFAULT_MODEL
-        if engine == "mlx-whisper":
-            return f"mlx-community/whisper-{default}-mlx"
-        return default
-
-    name = name.strip()
-    if name in config.KNOWN_MODELS:
-        if engine == "mlx-whisper":
-            return f"mlx-community/whisper-{name}-mlx"
-        return name
-
-    # 透传：用户自己写了完整名（比如 mlx-community/whisper-small-mlx-q4）
-    return name
-
-
-# ---------- 依赖检查 ----------
-
-def check_prereqs() -> None:
-    missing = []
-    for cmd in ("ffmpeg", "uvx"):
-        if shutil.which(cmd) is None:
-            missing.append(cmd)
-    if missing:
-        sys.stderr.write(
-            "❌ 缺少依赖：" + ", ".join(missing) + "\n"
-            "   请先跑：\n"
-            "     macOS:   bash scripts/install-mac.sh\n"
-            "     Windows: powershell -ExecutionPolicy Bypass -File scripts\\install-windows.ps1\n"
-            "   或参考 docs/install-mac.md / docs/install-windows.md\n"
-        )
-        sys.exit(2)
-
-
-# ---------- 音频预处理 ----------
-
-def preprocess_audio(src: Path, dst: Path) -> None:
-    """把任意输入音频转成 16kHz 单声道 WAV。这是避免 Whisper 幻觉循环的关键。"""
-    print(f"[1/3] 预处理音频：{src.name} → 16kHz 单声道 WAV ...")
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i", str(src),
-        "-ar", "16000",
-        "-ac", "1",
-        "-c:a", "pcm_s16le",
-        str(dst),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.stderr.write(f"❌ ffmpeg 失败：\n{result.stderr[-1500:]}\n")
-        sys.exit(3)
-    print(f"      → {dst.name}")
-
-
-# ---------- 转录 ----------
-
-def run_transcribe(
-    wav: Path,
-    output_dir: Path,
-    language: str,
-    engine: str,
-    prefix: list[str],
-    model: str,
-    env: dict[str, str],
-) -> None:
-    """跑 mlx-whisper 或 whisper-ctranslate2，输出到 output_dir。"""
-    print(f"[2/3] 转录中（引擎：{engine}，模型：{model}）...")
-    print(f"      首次跑会下载{model_download_size_hint(model)}模型，请耐心等待。")
-    print("      下载与推理过程中会持续打印进度（📥 下载 / ⏳ 推理），无需另开终端查询。")
-    if env.get("HF_ENDPOINT") == CN_HF_ENDPOINT:
-        print(f"      已启用 HuggingFace 镜像：{CN_HF_ENDPOINT}")
-    if env.get("UV_INDEX_URL") == CN_PYPI_INDEX:
-        print(f"      已启用 PyPI 镜像（uv）：{CN_PYPI_INDEX}")
-    if not env.get("HF_ENDPOINT") and not env.get("UV_INDEX_URL"):
-        print("      国内网络慢可加 --cn 启用 HuggingFace / PyPI 镜像。")
-
-    if engine == "mlx-whisper":
-        cmd = prefix + [
-            str(wav),
-            "--model", model,
-            "--language", language,
-            "--task", "transcribe",
-            "--condition-on-previous-text", "False",  # 关键：避免幻觉循环
-            "--output-format", "all",
-            "--output-dir", str(output_dir),
-        ]
-    else:
-        # whisper-ctranslate2 的 CLI 兼容 openai-whisper
-        cmd = prefix + [
-            str(wav),
-            "--model", model,
-            "--language", language,
-            "--task", "transcribe",
-            "--condition_on_previous_text", "False",  # 注意是下划线
-            "--output_format", "all",
-            "--output_dir", str(output_dir),
-        ]
-
-    returncode = run_subprocess_with_progress(cmd, env, model)
-    if returncode != 0:
-        sys.stderr.write(
-            "❌ 转录失败。常见原因：\n"
-            "   - HuggingFace 下载失败 → 加 --cn 启用 hf-mirror.com 镜像后重跑\n"
-            "   - uv 拉 mlx-whisper / whisper-ctranslate2 慢 → --cn 会同时启用清华 PyPI 镜像\n"
-            "   - 显存/内存不足 → 关掉其他大型程序后重试，或 --model medium 换更小的模型\n"
-            "   - 音频格式异常 → 看 docs/troubleshooting.md\n"
-        )
-        sys.exit(4)
-    print("      转录完成 ✅")
-
-
-# ---------- 输出整理 ----------
-
-def organize_output(wav_stem: str, output_dir: Path) -> tuple[Path, Path]:
-    """把 mlx/whisper 的默认输出 rename 成中文名，删多余格式。返回 (txt路径, srt路径)。
-
-    若源文件不存在（说明转录子进程虽 exit 0 但没产文件），抛 RuntimeError，
-    避免"转录完成 ✅"的虚假成功。
-    """
-    print("[3/3] 整理输出文件 ...")
-
-    txt_src = output_dir / f"{wav_stem}.txt"
-    srt_src = output_dir / f"{wav_stem}.srt"
-
-    txt_dst = output_dir / "转录原稿.txt"
-    srt_dst = output_dir / "字幕.srt"
-
-    if not txt_src.exists() and not srt_src.exists():
-        # 列一下实际产物，方便排查
-        actual = sorted(p.name for p in output_dir.iterdir()) if output_dir.exists() else []
-        raise RuntimeError(
-            f"转录子进程退出码 0，但找不到预期输出：{txt_src.name} / {srt_src.name}\n"
-            f"   输出目录实际内容：{actual}\n"
-            "   常见原因：mlx-whisper / whisper-ctranslate2 把文件写到了别的位置；"
-            "请用 --output-dir 显式指定，或检查脚本日志。"
-        )
-
-    if txt_src.exists():
-        if txt_dst.exists():
-            txt_dst.unlink()
-        txt_src.rename(txt_dst)
-    else:
-        print(f"      ⚠️  缺少 {txt_src.name}（只产出了 srt？）")
-
-    if srt_src.exists():
-        if srt_dst.exists():
-            srt_dst.unlink()
-        srt_src.rename(srt_dst)
-    else:
-        print(f"      ⚠️  缺少 {srt_src.name}（只产出了 txt？）")
-
-    # 清理多余格式
-    for ext in (".vtt", ".tsv", ".json"):
-        p = output_dir / f"{wav_stem}{ext}"
-        if p.exists():
-            p.unlink()
-
-    return txt_dst, srt_dst
 
 
 # ---------- 主流程 ----------
@@ -534,10 +154,8 @@ def main() -> int:
 
     if args.set_default_model is not None:
         if args.set_default_model == "":
-            cfg = config.load()
-            cfg.pop("default_model", None)
-            config.save(cfg)
-            print(f"✅ 已清除默认模型（恢复使用内置默认 {config.DEFAULT_MODEL}）")
+            config.set_default_model(config.DEFAULT_MODEL)
+            print(f"✅ 默认模型已恢复为内置默认：{config.DEFAULT_MODEL}")
         else:
             config.set_default_model(args.set_default_model)
             print(f"✅ 默认模型已改为：{args.set_default_model}")
@@ -554,7 +172,10 @@ def main() -> int:
             print("   每次转录会按时区/语言自动判断；如需强制：加 --cn 或 --no-cn")
         return 0
 
-    # 转录主流程
+    # 转录主流程：首次 onboarding 是硬门禁，--format/--model 不能绕过。
+    if config.needs_onboarding():
+        config.emit_onboarding_required()
+
     if not args.audio:
         parser.print_help()
         sys.stderr.write("\n❌ 缺少音频文件参数\n")
@@ -567,22 +188,14 @@ def main() -> int:
 
     check_prereqs()
 
-    # 决定输出格式：CLI > config > 首次 onboarding（agent 候选框 / TTY 交互）
-    fmt = args.format
+    # 决定输出格式：CLI > config。onboarding 已在上方硬门禁。
+    fmt = args.format or config.get_default_format()
     if fmt is None:
-        fmt = config.get_default_format()
-        if fmt is None:
-            if config.needs_onboarding():
-                if sys.stdin.isatty() and sys.stdout.isatty():
-                    fmt, _ = config.prompt_for_onboarding_tty()
-                else:
-                    config.emit_onboarding_required()
-            else:
-                sys.stderr.write(
-                    "❌ 配置缺少 default_format。请运行："
-                    f"python {Path(__file__).name} --set-default md|docx\n"
-                )
-                return 2
+        sys.stderr.write(
+            "❌ 配置缺少 default_format。请运行："
+            f"python {Path(__file__).name} --onboarding\n"
+        )
+        return 2
     print(f"本次输出格式：{fmt}（之后想改默认：python {Path(__file__).name} --set-default md|docx）")
 
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else audio_path.parent
