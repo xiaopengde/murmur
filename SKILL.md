@@ -204,8 +204,8 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 ### GitHub Copilot Agent (VS Code)
 
 - `run_in_terminal` 跑 `transcribe.py` 时用 `mode='sync'` + 长 timeout（30 分钟录音建议 timeout 30min）
-- 转录过程中终端会持续输出 `📥` 下载进度和 `⏳` 推理心跳——**不要**在同一持久 shell 里再 `send_to_terminal` 其它命令（会 Ctrl+C 掉转录）
-- 无需另开终端「看进度」；盯着 sync 任务的 stdout 即可
+- **不要**在转录跑着的时候 `send_to_terminal` 任何"看进度"的命令到同一个持久 zsh——会 Ctrl+C 掉进程
+- 真要看进度，新开终端
 
 ### Claude Code
 
@@ -269,7 +269,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 #    读 docs/prompts/retrospective.md，输出 复盘纪要.md
 ```
 
-整个过程**只有一次**用户交互（首次的 md/docx 选择），之后都是无人值守。
+整个过程**只有一次**用户交互（首次 onboarding 的格式 + 模型选择），之后都是无人值守。
 
 ---
 

@@ -125,13 +125,13 @@ fi
 HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
 if [[ -d "$HF_CACHE" ]]; then
   SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | awk '{print $1}')
-  if find "$HF_CACHE" \( -name "*whisper*large-v3-turbo*" -o -name "*whisper*large-v3*" \) 2>/dev/null | grep -q .; then
-    ok "HuggingFace 缓存已含 Whisper 转录模型（${SIZE}）"
+  if find "$HF_CACHE" -name "*whisper*large-v3*" 2>/dev/null | grep -q .; then
+    ok "HuggingFace 缓存已含 whisper-large-v3 模型（${SIZE}）"
   else
-    info "HuggingFace 缓存目录存在但未含默认模型，首次转录会下载约 1.5GB（large-v3-turbo）"
+    info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
   fi
 else
-  info "HuggingFace 缓存尚未建立，首次转录会下载约 1.5GB 模型（默认 large-v3-turbo）"
+  info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
   info "国内网络慢可设：export HF_ENDPOINT=https://hf-mirror.com"
 fi
 
@@ -141,7 +141,14 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
   CN_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('cn_mode','auto'))" 2>/dev/null || echo "auto")
-  ok "Murmur 配置已存在（默认输出格式：${FORMAT}）"
+  ONBOARD_DONE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('onboarding_complete', False))" 2>/dev/null || echo "False")
+  if [[ "$ONBOARD_DONE" == "True" ]]; then
+    MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_model','(内置默认)'))" 2>/dev/null || echo "?")
+    ok "Murmur onboarding 已完成（默认格式：${FORMAT}，默认模型：${MODEL}）"
+  else
+    warn "Murmur onboarding 未完成（已有配置但不完整）"
+    info "  Agent：python3 scripts/transcribe.py --onboarding → 候选框 → --init-defaults"
+  fi
   case "$CN_MODE" in
     on)
       ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）"

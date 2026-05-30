@@ -85,12 +85,12 @@ if (Test-Path $hfCache) {
     $modelDirs = Get-ChildItem $hfCache -Filter "*whisper*large-v3*" -ErrorAction SilentlyContinue
     if ($modelDirs) {
         $size = "{0:N2} GB" -f ((Get-ChildItem $hfCache -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1GB)
-        Write-Ok "HuggingFace 缓存已含 Whisper 转录模型（缓存共 $size）"
+        Write-Ok "HuggingFace 缓存已含 whisper-large-v3 模型（缓存共 $size）"
     } else {
-        Write-Info "HuggingFace 缓存目录存在但未含默认模型，首次转录会下载约 1.5GB（large-v3-turbo）"
+        Write-Info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
     }
 } else {
-    Write-Info "HuggingFace 缓存尚未建立，首次转录会下载约 1.5GB 模型（默认 large-v3-turbo）"
+    Write-Info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
     Write-Info "国内网络慢可设：`$env:HF_ENDPOINT=`"https://hf-mirror.com`""
 }
 
@@ -101,7 +101,14 @@ if (Test-Path $configFile) {
     try {
         $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
         $fmt = if ($cfg.default_format) { $cfg.default_format } else { "?" }
-        Write-Ok "Murmur 配置已存在（默认输出格式：$fmt）"
+        $onboardDone = if ($null -ne $cfg.onboarding_complete) { [bool]$cfg.onboarding_complete } else { $false }
+        if ($onboardDone) {
+            $model = if ($cfg.default_model) { $cfg.default_model } else { "(内置默认)" }
+            Write-Ok "Murmur onboarding 已完成（默认格式：$fmt，默认模型：$model）"
+        } else {
+            Write-Warn2 "Murmur onboarding 未完成（已有配置但不完整）"
+            Write-Info "  Agent：python scripts\transcribe.py --onboarding → 候选框 → --init-defaults"
+        }
         $cnMode = if ($cfg.cn_mode) { $cfg.cn_mode } else { "auto" }
         switch ($cnMode) {
             "on"  { Write-Ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" }

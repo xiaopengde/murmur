@@ -17,6 +17,8 @@
   python transcribe.py --set-default-cn off           # 持久禁用
   python transcribe.py --set-default-cn auto          # 恢复默认：按时区/语言自动判断
   python transcribe.py --show-config                  # 看当前配置
+  python transcribe.py --onboarding                   # 输出首次 onboarding 候选 JSON（agent 候选框）
+  python transcribe.py --init-defaults --format md --set-default-model large-v3-turbo
 """
 
 from __future__ import annotations
@@ -459,6 +461,16 @@ def main() -> int:
         ),
     )
     parser.add_argument("--show-config", action="store_true", help="显示当前配置后退出")
+    parser.add_argument(
+        "--onboarding",
+        action="store_true",
+        help="输出首次 onboarding 候选 JSON（供 agent AskQuestion / 候选框使用）",
+    )
+    parser.add_argument(
+        "--init-defaults",
+        action="store_true",
+        help="写入首次默认格式+模型后退出（需同时 --format 与 --set-default-model）",
+    )
 
     args = parser.parse_args()
 
@@ -477,6 +489,32 @@ def main() -> int:
             print("  └ 每次转录都会注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
         else:
             print("  └ 每次转录都走官方源；如需单次启用：加 --cn")
+        onboard = "已完成" if not config.needs_onboarding() else "未完成（跑 --onboarding 查看候选）"
+        print(f"首次 onboarding：{onboard}")
+        return 0
+
+    if args.onboarding:
+        import json
+        print(json.dumps(config.onboarding_payload(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.init_defaults:
+        if not args.format:
+            sys.stderr.write("❌ --init-defaults 需要同时指定 --format md|docx\n")
+            return 2
+        if args.set_default_model is None:
+            sys.stderr.write(
+                "❌ --init-defaults 需要同时指定 --set-default-model <模型短名>\n"
+                "   例：python transcribe.py --init-defaults --format md --set-default-model large-v3-turbo\n"
+            )
+            return 2
+        try:
+            config.apply_onboarding(args.format, args.set_default_model)
+        except ValueError as e:
+            sys.stderr.write(f"❌ {e}\n")
+            return 2
+        print(f"✅ 首次 onboarding 完成：默认格式 {args.format}，默认模型 {args.set_default_model}")
+        print(f"   配置已写入：{config.config_path()}")
         return 0
 
     if getattr(args, "mirror", None):
@@ -529,12 +567,22 @@ def main() -> int:
 
     check_prereqs()
 
-    # 决定输出格式：CLI flag 优先 > config 默认 > 首次询问
+    # 决定输出格式：CLI > config > 首次 onboarding（agent 候选框 / TTY 交互）
     fmt = args.format
     if fmt is None:
         fmt = config.get_default_format()
         if fmt is None:
-            fmt = config.prompt_for_default_format()
+            if config.needs_onboarding():
+                if sys.stdin.isatty() and sys.stdout.isatty():
+                    fmt, _ = config.prompt_for_onboarding_tty()
+                else:
+                    config.emit_onboarding_required()
+            else:
+                sys.stderr.write(
+                    "❌ 配置缺少 default_format。请运行："
+                    f"python {Path(__file__).name} --set-default md|docx\n"
+                )
+                return 2
     print(f"本次输出格式：{fmt}（之后想改默认：python {Path(__file__).name} --set-default md|docx）")
 
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else audio_path.parent
