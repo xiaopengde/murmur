@@ -85,12 +85,12 @@ if (Test-Path $hfCache) {
     $modelDirs = Get-ChildItem $hfCache -Filter "*whisper*large-v3*" -ErrorAction SilentlyContinue
     if ($modelDirs) {
         $size = "{0:N2} GB" -f ((Get-ChildItem $hfCache -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1GB)
-        Write-Ok "HuggingFace 缓存已含 whisper-large-v3 模型（缓存共 $size）"
+        Write-Ok "HuggingFace 缓存已含 Whisper 转录模型（缓存共 $size）"
     } else {
-        Write-Info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
+        Write-Info "HuggingFace 缓存目录存在但未含默认模型，首次转录会下载约 1.5GB（large-v3-turbo）"
     }
 } else {
-    Write-Info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
+    Write-Info "HuggingFace 缓存尚未建立，首次转录会下载约 1.5GB 模型（默认 large-v3-turbo）"
     Write-Info "国内网络慢可设：`$env:HF_ENDPOINT=`"https://hf-mirror.com`""
 }
 
@@ -165,23 +165,15 @@ try {
 
     # 2) 跑 transcribe.py
     Write-Info "[2/3] 跑 transcribe.py（--model tiny --format md）..."
-    $smokeArgs = @(
+    $start = Get-Date
+    $logFile = Join-Path $smokeDir "transcribe.log"
+    $py = Start-Process -FilePath $pythonCmd -ArgumentList @(
         (Join-Path $scriptDir "transcribe.py"),
         $smokeAudio,
         "--model", "tiny",
         "--format", "md",
         "--output-dir", $smokeDir
-    )
-    $cnEnvPy = Join-Path $scriptDir "cn_env.py"
-    & $pythonCmd $cnEnvPy --should-mirror 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        $smokeArgs += "--cn"
-        Write-Info "    检测到应启用大陆镜像，smoke 测试加 --cn"
-    }
-    $start = Get-Date
-    $logFile = Join-Path $smokeDir "transcribe.log"
-    $py = Start-Process -FilePath $pythonCmd -ArgumentList $smokeArgs `
-        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
     $elapsed = [int]((Get-Date) - $start).TotalSeconds
     if ($py.ExitCode -ne 0) {
         Write-Err "transcribe.py 失败（exit=$($py.ExitCode)）。日志末尾："

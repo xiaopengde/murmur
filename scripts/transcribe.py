@@ -59,19 +59,37 @@ def detect_engine() -> tuple[str, list[str]]:
 
 # ---------- 模型名解析 ----------
 
+def model_download_size_hint(model: str) -> str:
+    """根据模型名给用户一个大致的首次下载体积提示。"""
+    m = model.lower()
+    if "turbo" in m:
+        return "约 1.5GB"
+    if "large" in m:
+        return "约 2.9GB"
+    if "medium" in m:
+        return "约 1GB"
+    if "small" in m:
+        return "约 500MB"
+    if "tiny" in m or "base" in m:
+        return "约 75–150MB"
+    return "视模型而定"
+
+
 def resolve_model(name: str | None, engine: str) -> str:
     """把用户给的模型名（或 None）按引擎映射成对应实参。
 
     规则：
-      - None → 各引擎的内置 large-v3 默认
+      - None → 各引擎的内置 large-v3-turbo 默认
       - 已在 KNOWN_MODELS 里的短名 → 按引擎映射：
           mlx-whisper      → mlx-community/whisper-<name>-mlx
-          whisper-ctranslate2 → 原样（large-v3 / medium / ...）
+          whisper-ctranslate2 → 原样（large-v3-turbo / medium / ...）
       - 其它字符串 → 原样透传（高级用户用完整 HF repo 名时走这条）
     """
     if not name:
-        # 内置默认：mlx 用社区量化版，ctranslate2 用官方名
-        return "mlx-community/whisper-large-v3-mlx" if engine == "mlx-whisper" else "large-v3"
+        default = config.DEFAULT_MODEL
+        if engine == "mlx-whisper":
+            return f"mlx-community/whisper-{default}-mlx"
+        return default
 
     name = name.strip()
     if name in config.KNOWN_MODELS:
@@ -135,7 +153,7 @@ def run_transcribe(
 ) -> None:
     """跑 mlx-whisper 或 whisper-ctranslate2，输出到 output_dir。"""
     print(f"[2/3] 转录中（引擎：{engine}，模型：{model}）...")
-    print("      首次跑会下载约 2.9GB 模型，请耐心等待。")
+    print(f"      首次跑会下载{model_download_size_hint(model)}模型，请耐心等待。")
     if env.get("HF_ENDPOINT") == CN_HF_ENDPOINT:
         print(f"      已启用 HuggingFace 镜像：{CN_HF_ENDPOINT}")
     if env.get("UV_INDEX_URL") == CN_PYPI_INDEX:
@@ -257,7 +275,7 @@ def main() -> int:
         default=None,
         help=(
             "本次使用的模型（短名 tiny/base/small/medium/large-v2/large-v3/large-v3-turbo，"
-            "或完整 HF repo 名）。不传则用 --set-default-model 的值，再不行用内置默认 large-v3"
+            "或完整 HF repo 名）。不传则用 --set-default-model 的值，再不行用内置默认 large-v3-turbo"
         ),
     )
     parser.add_argument("--output-dir", default=None, help="输出目录（默认与音频同目录）")
@@ -320,7 +338,7 @@ def main() -> int:
             cfg = config.load()
             cfg.pop("default_model", None)
             config.save(cfg)
-            print("✅ 已清除默认模型（恢复使用内置默认 large-v3）")
+            print(f"✅ 已清除默认模型（恢复使用内置默认 {config.DEFAULT_MODEL}）")
         else:
             config.set_default_model(args.set_default_model)
             print(f"✅ 默认模型已改为：{args.set_default_model}")

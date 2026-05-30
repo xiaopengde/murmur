@@ -1,6 +1,6 @@
 ---
 name: murmur
-description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。零云端、零订阅、隐私不出本机。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
+description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3-turbo 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。零云端、零订阅、隐私不出本机。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
 ---
 
 # Murmur — 本地零成本音频转录与清洗工作流
@@ -41,9 +41,6 @@ doctor 脚本会检查：`ffmpeg` / `uv` / `pandoc` / `python3` / 平台和芯�
 ```bash
 # macOS
 bash scripts/install-mac.sh
-
-# Linux / WSL
-bash scripts/install-linux.sh
 
 # Windows (需要管理员 PowerShell)
 powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1
@@ -124,7 +121,7 @@ python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自�
 ```bash
 python scripts/transcribe.py 录音.m4a --model medium                   # 单次
 python scripts/transcribe.py --set-default-model medium                # 永久（写入 config）
-python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3
+python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3-turbo
 ```
 
 支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo` 短名，会按引擎自动映射（mlx-whisper → `mlx-community/whisper-<name>-mlx`，whisper-ctranslate2 → 原样）。也支持透传完整 HF repo 名给高级用户。
@@ -132,7 +129,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 **预期耗时**：
 - M2/M3：音频时长 × 0.3-0.5
 - Windows / Linux CPU：音频时长 × 1-2（首次会更慢，模型加载约 30s）
-- 首次跑会下载 ~2.9GB 模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
+- 首次跑会下载 ~1.5GB 模型（默认 large-v3-turbo）到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
 
 **⚠️ 关键约定**：脚本里**已经默认**关掉了 `condition-on-previous-text`，因为这是 No.1 大坑（不关会输出"X 点 X 点 X 点……"或"谢谢观看"成段重复）。**不要**修改这个默认值。
 
@@ -236,7 +233,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
-| `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Linux: `bash scripts/install-linux.sh --cn`（PyPI 镜像装 uv）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，命中也会写入 cn_mode=on |
+| `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |
 | Mac 上 install-mac.sh 报 "command not found: brew" | Homebrew 没装 | 让用户先装 Homebrew（脚本会给提示） |
 | Windows 上 install-windows.ps1 报权限错误 | PowerShell 没用管理员模式 | 右键 PowerShell → 以管理员身份运行 |
 | Windows 上 winget 找不到 | 旧版 Windows 10 没装 winget | 让用户从 Microsoft Store 装 "App Installer" |
@@ -258,9 +255,6 @@ bash scripts/doctor.sh
 
 # 2) 缺啥装啥
 bash scripts/install-mac.sh
-
-# Linux / WSL
-bash scripts/install-linux.sh
 
 # 3) 转录（首次会问 md/docx，让用户回答）
 python scripts/transcribe.py 面试.m4a

@@ -28,6 +28,8 @@ VALID_CN_MODES = {"on", "off", "auto"}
 # 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
 # （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
 # 不在这个列表里的值也允许（直接透传），方便高级用户用完整 HF repo 名。
+DEFAULT_MODEL = "large-v3-turbo"
+
 KNOWN_MODELS = {
     "tiny", "base", "small", "medium",
     "large-v1", "large-v2", "large-v3", "large-v3-turbo",

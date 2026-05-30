@@ -186,7 +186,7 @@ echo "下一步："
 echo "  1) 跑体检：    bash scripts/doctor.sh"
 echo "  2) 第一次转录：python3 scripts/transcribe.py 你的录音.m4a"
 echo ""
-echo "首次转录会下载 ~2.9GB 的 Whisper large-v3 模型，喝杯咖啡。"
+echo "首次转录会下载 ~1.5GB 的 Whisper large-v3-turbo 模型，喝杯咖啡。"
 if [[ "$CN_MODE" == "yes" ]]; then
   echo ""
   echo "🇨🇳 大陆镜像偏好已写入配置；Homebrew USTC 镜像已写入 shell profile；模型下载走 hf-mirror.com。"

@@ -236,7 +236,7 @@ Write-Host "  1) 关掉当前 PowerShell，新开一个（让 PATH 刷新）"
 Write-Host "  2) 跑体检：     powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1"
 Write-Host "  3) 第一次转录： python scripts\transcribe.py 你的录音.m4a"
 Write-Host ""
-Write-Host "首次转录会下载 ~2.9GB 的 Whisper large-v3 模型，喝杯咖啡。"
+Write-Host "首次转录会下载 ~1.5GB 的 Whisper large-v3-turbo 模型，喝杯咖啡。"
 if ($useCnMirror) {
     Write-Host ""
     Write-Host "🇨🇳 大陆镜像偏好已写入配置；模型下载走 hf-mirror.com，uv 拉包走清华 PyPI。"

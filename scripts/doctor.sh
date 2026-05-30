@@ -125,13 +125,13 @@ fi
 HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
 if [[ -d "$HF_CACHE" ]]; then
   SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | awk '{print $1}')
-  if find "$HF_CACHE" -name "*whisper*large-v3*" 2>/dev/null | grep -q .; then
-    ok "HuggingFace 缓存已含 whisper-large-v3 模型（${SIZE}）"
+  if find "$HF_CACHE" \( -name "*whisper*large-v3-turbo*" -o -name "*whisper*large-v3*" \) 2>/dev/null | grep -q .; then
+    ok "HuggingFace 缓存已含 Whisper 转录模型（${SIZE}）"
   else
-    info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
+    info "HuggingFace 缓存目录存在但未含默认模型，首次转录会下载约 1.5GB（large-v3-turbo）"
   fi
 else
-  info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
+  info "HuggingFace 缓存尚未建立，首次转录会下载约 1.5GB 模型（默认 large-v3-turbo）"
   info "国内网络慢可设：export HF_ENDPOINT=https://hf-mirror.com"
 fi
 
@@ -164,11 +164,7 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 && comman
   ok "核心环境就绪，可以开始转录！"
   echo "    试试：python3 scripts/transcribe.py 你的录音.m4a"
 else
-  if [[ "$OS" == "Darwin" ]]; then
-    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
-  else
-    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-linux.sh"
-  fi
+  err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
   if [[ "$SMOKE_MODE" == "yes" ]]; then
     err "依赖缺失，跳过 --smoke 端到端测试"
     exit 1

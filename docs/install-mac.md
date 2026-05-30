@@ -164,7 +164,11 @@ macOS 在电池模式下会限制 mlx 性能。插上电源跑。
 
 ```bash
 # 删模型缓存（约 3GB）
+rm -rf ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-mlx
+rm -rf ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-mlx
+rm -rf ~/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3-turbo
 rm -rf ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-mlx
+rm -rf ~/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3-turbo
 rm -rf ~/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3
 
 # 删 Murmur 配置

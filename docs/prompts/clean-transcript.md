@@ -58,7 +58,7 @@
 
 > 时间：YYYY-MM-DD HH:MM（如未知就写"未知"）
 > 时长：约 X 分 Y 秒（看转录原稿末尾时间戳推算，没有就略）
-> 说明：本稿基于 Whisper large-v3 自动转录，已清洗水词、修正以下专有名词识别错误：
+> 说明：本稿基于 Whisper large-v3-turbo 自动转录，已清洗水词、修正以下专有名词识别错误：
 > 美传→美团 / IPPT→PPT / NiM as Judge→LLM as Judge / Rubik→Rubric / 化学→幻觉 / ...（这里列实际改的）
 > 每一段尽量保留原句结构与语气，方便复盘对照。
 
