@@ -1,6 +1,6 @@
 ---
 name: murmur
-description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3-turbo 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。零云端、零订阅、隐私不出本机。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
+description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。零云端、零订阅、隐私不出本机。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
 ---
 
 # Murmur — 本地零成本音频转录与清洗工作流
@@ -121,7 +121,7 @@ python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自�
 ```bash
 python scripts/transcribe.py 录音.m4a --model medium                   # 单次
 python scripts/transcribe.py --set-default-model medium                # 永久（写入 config）
-python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3-turbo
+python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3
 ```
 
 支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo` 短名，会按引擎自动映射（mlx-whisper → `mlx-community/whisper-<name>-mlx`，whisper-ctranslate2 → 原样）。也支持透传完整 HF repo 名给高级用户。
@@ -129,7 +129,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 **预期耗时**：
 - M2/M3：音频时长 × 0.3-0.5
 - Windows / Linux CPU：音频时长 × 1-2（首次会更慢，模型加载约 30s）
-- 首次跑会下载 ~1.5GB 模型（默认 large-v3-turbo）到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
+- 首次跑会下载 ~2.9GB 模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
 
 **⚠️ 关键约定**：脚本里**已经默认**关掉了 `condition-on-previous-text`，因为这是 No.1 大坑（不关会输出"X 点 X 点 X 点……"或"谢谢观看"成段重复）。**不要**修改这个默认值。
 
@@ -204,8 +204,8 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 ### GitHub Copilot Agent (VS Code)
 
 - `run_in_terminal` 跑 `transcribe.py` 时用 `mode='sync'` + 长 timeout（30 分钟录音建议 timeout 30min）
-- **不要**在转录跑着的时候 `send_to_terminal` 任何"看进度"的命令到同一个持久 zsh——会 Ctrl+C 掉进程
-- 真要看进度，新开终端
+- 转录过程中终端会持续输出 `📥` 下载进度和 `⏳` 推理心跳——**不要**在同一持久 shell 里再 `send_to_terminal` 其它命令（会 Ctrl+C 掉转录）
+- 无需另开终端「看进度」；盯着 sync 任务的 stdout 即可
 
 ### Claude Code
 
