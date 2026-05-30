@@ -164,7 +164,11 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 && comman
   ok "核心环境就绪，可以开始转录！"
   echo "    试试：python3 scripts/transcribe.py 你的录音.m4a"
 else
-  err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
+  if [[ "$OS" == "Darwin" ]]; then
+    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
+  else
+    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-linux.sh"
+  fi
   if [[ "$SMOKE_MODE" == "yes" ]]; then
     err "依赖缺失，跳过 --smoke 端到端测试"
     exit 1

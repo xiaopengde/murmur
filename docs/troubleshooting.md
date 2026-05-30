@@ -86,7 +86,19 @@ ffmpeg -i 长录音.m4a -f segment -segment_time 900 -c copy 片段_%03d.m4a
 
 **原因**：国内访问 huggingface.co 不稳定。
 
-**解法**：用镜像
+**解法**（推荐，持久生效）：
+
+```bash
+# Mac / Linux / WSL
+python3 scripts/transcribe.py --set-default-cn on
+
+# Windows PowerShell
+python scripts\transcribe.py --set-default-cn on
+```
+
+之后 `transcribe.py` 会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像。单次覆盖可加 `--cn`。
+
+也可手动设环境变量后重跑（模型只下一次）：
 
 ```bash
 # Mac/Linux
@@ -95,8 +107,6 @@ export HF_ENDPOINT=https://hf-mirror.com
 # Windows PowerShell
 $env:HF_ENDPOINT = "https://hf-mirror.com"
 ```
-
-设完重跑。模型只下一次，之后离线可用。
 
 ---
 

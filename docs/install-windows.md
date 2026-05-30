@@ -80,7 +80,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 iwr -useb get.scoop.sh | iex
 
 # 把 main bucket 切到南大镜像（可选，加速 manifest 同步）
-scoop config SCOOP_REPO https://mirror.nju.edu.cn/scoop
+scoop config SCOOP_REPO https://mirrors.nju.edu.cn/git/scoop-installer/Scoop.git
 
 # 装四件套
 scoop install ffmpeg uv pandoc python

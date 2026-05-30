@@ -9,6 +9,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -32,9 +34,30 @@ Murmur 一键安装 — macOS
 EOF
 }
 
+persist_cn_shell_profile() {
+  local marker="murmur cn mirror"
+  local block='# >>> murmur cn mirror (managed by install-mac.sh) >>>
+export HOMEBREW_API_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles/api"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles"
+export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.ustc.edu.cn/brew.git"
+export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.ustc.edu.cn/homebrew-core.git"
+export HOMEBREW_NO_AUTO_UPDATE=1
+# <<< murmur cn mirror <<<'
+  local rc
+  for rc in "$HOME/.zshrc" "$HOME/.bash_profile"; do
+    touch "$rc"
+    if grep -q "$marker" "$rc" 2>/dev/null; then
+      ok "Shell 镜像配置已存在于 $(basename "$rc")，跳过"
+    else
+      printf '\n%s\n' "$block" >> "$rc"
+      ok "已写入 $(basename "$rc")：以后 brew install 默认走 USTC 镜像"
+    fi
+  done
+}
+
 # ---------- 解析参数 ----------
-CN_MODE=""           # "", "yes", "no"  — 本次安装是否启用大陆镜像（含 auto-detect 结果）
-EXPLICIT_CN_FLAG=""  # "", "cn", "no-cn" — 用户是否显式传了 --cn / --no-cn
+CN_MODE=""
+EXPLICIT_CN_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --cn|--china)   CN_MODE="yes"; EXPLICIT_CN_FLAG="cn" ;;
@@ -47,29 +70,10 @@ for arg in "$@"; do
   esac
 done
 
-# ---------- 自动检测大陆环境 ----------
-# 仅在用户没显式指定时检测；命中任一就建议启用镜像
+# ---------- 自动检测大陆环境（统一走 scripts/cn_env.py）----------
 detect_cn() {
-  # 时区
-  if [[ -L /etc/localtime ]]; then
-    local tz
-    tz=$(readlink /etc/localtime 2>/dev/null || true)
-    case "$tz" in
-      *Shanghai*|*Chongqing*|*Urumqi*|*Harbin*) return 0 ;;
-    esac
-  fi
-  # locale / 语言（分别检查，避免拼接导致 "en_US.UTF-8zh_CN.UTF-8" 这类假阴性）
-  case "${LANG:-}" in zh_CN*|zh-CN*) return 0 ;; esac
-  case "${LC_ALL:-}" in zh_CN*|zh-CN*) return 0 ;; esac
-  # 系统偏好设置（macOS）
-  if command -v defaults >/dev/null 2>&1; then
-    local loc
-    loc=$(defaults read -g AppleLocale 2>/dev/null || true)
-    case "$loc" in
-      zh_CN*) return 0 ;;
-    esac
-  fi
-  return 1
+  command -v python3 >/dev/null 2>&1 \
+    && python3 "$SCRIPT_DIR/cn_env.py" --detect >/dev/null 2>&1
 }
 
 if [[ -z "$CN_MODE" ]]; then
@@ -82,15 +86,13 @@ if [[ -z "$CN_MODE" ]]; then
   fi
 fi
 
-# ---------- 启用 Homebrew 大陆镜像 ----------
-# 参考 USTC 镜像：https://mirrors.ustc.edu.cn/help/brew.git.html
-# 这些环境变量对子进程 brew 生效；HOMEBREW_API_DOMAIN / BOTTLE_DOMAIN 影响 bottle 下载速度
+# ---------- 启用 Homebrew 大陆镜像（当前 shell 会话）----------
 if [[ "$CN_MODE" == "yes" ]]; then
   export HOMEBREW_API_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles/api"
   export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.ustc.edu.cn/homebrew-bottles"
   export HOMEBREW_BREW_GIT_REMOTE="https://mirrors.ustc.edu.cn/brew.git"
   export HOMEBREW_CORE_GIT_REMOTE="https://mirrors.ustc.edu.cn/homebrew-core.git"
-  export HOMEBREW_NO_AUTO_UPDATE=1   # 避免每次 brew install 都同步 tap，国内常卡
+  export HOMEBREW_NO_AUTO_UPDATE=1
   ok "已启用 Homebrew USTC 镜像（HOMEBREW_*_DOMAIN / *_GIT_REMOTE）"
 fi
 
@@ -100,12 +102,10 @@ echo "  Murmur 一键安装 (macOS)"
 echo "================================"
 echo ""
 
-# ---------- 检查 macOS ----------
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  err "这个脚本只能在 macOS 上跑；Linux 请看 docs/install-windows.md 末尾的 Linux 章节，Windows 请用 scripts/install-windows.ps1"
+  err "这个脚本只能在 macOS 上跑；Linux 请用 scripts/install-linux.sh，Windows 请用 scripts/install-windows.ps1"
 fi
 
-# ---------- 检查 Homebrew ----------
 if ! command -v brew >/dev/null 2>&1; then
   warn "未检测到 Homebrew —— Murmur 需要 brew 来装 ffmpeg/uv/pandoc"
   echo ""
@@ -117,9 +117,6 @@ if ! command -v brew >/dev/null 2>&1; then
     echo "或者用清华源："
     echo ""
     echo '  /bin/bash -c "$(curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/homebrew/install.sh)"'
-    echo ""
-    echo "都可以；如果网络畅通也可以用官方："
-    echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
   else
     echo "请先手动安装 Homebrew（一行命令）："
     echo ""
@@ -134,7 +131,6 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 ok "Homebrew 已安装：$(brew --version | head -n1)"
 
-# ---------- ffmpeg ----------
 if command -v ffmpeg >/dev/null 2>&1; then
   ok "ffmpeg 已安装，跳过"
 else
@@ -143,7 +139,6 @@ else
   ok "ffmpeg 安装完成"
 fi
 
-# ---------- uv ----------
 if command -v uvx >/dev/null 2>&1; then
   ok "uv 已安装，跳过"
 else
@@ -152,7 +147,6 @@ else
   ok "uv 安装完成"
 fi
 
-# ---------- pandoc ----------
 if command -v pandoc >/dev/null 2>&1; then
   ok "pandoc 已安装，跳过"
 else
@@ -161,7 +155,6 @@ else
   ok "pandoc 安装完成"
 fi
 
-# ---------- python3 检查 ----------
 if ! command -v python3 >/dev/null 2>&1; then
   warn "python3 未检测到（macOS 通常自带），尝试装 python@3.11..."
   brew install python@3.11
@@ -174,24 +167,19 @@ ok "Murmur 安装完成！"
 echo "================================"
 echo ""
 
-# ---------- 持久化大陆镜像偏好（仅当用户显式 --cn / --no-cn 时）----------
-# auto-detect 的结果不写入配置——把"自动判断"的决策权留给 transcribe.py 每次跑时再决定，
-# 避免一次旅行到海外用 install 时的判断把偏好锁死。
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-case "$EXPLICIT_CN_FLAG" in
-  cn)
-    if command -v python3 >/dev/null 2>&1; then
-      python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn on >/dev/null 2>&1 \
-        && ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python3 scripts/transcribe.py --set-default-cn off）"
-    fi
-    ;;
-  no-cn)
-    if command -v python3 >/dev/null 2>&1; then
-      python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn off >/dev/null 2>&1 \
-        && ok "已记住偏好：以后 transcribe.py 默认走官方源（恢复自动：python3 scripts/transcribe.py --set-default-cn auto）"
-    fi
-    ;;
-esac
+# ---------- 持久化大陆镜像偏好 + shell 配置 ----------
+if [[ "$CN_MODE" == "yes" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn on >/dev/null 2>&1 \
+      && ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python3 scripts/transcribe.py --set-default-cn off）"
+  fi
+  persist_cn_shell_profile
+elif [[ "$EXPLICIT_CN_FLAG" == "no-cn" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn off >/dev/null 2>&1 \
+      && ok "已记住偏好：以后 transcribe.py 默认走官方源（恢复自动：python3 scripts/transcribe.py --set-default-cn auto）"
+  fi
+fi
 
 echo ""
 echo "下一步："
@@ -201,10 +189,9 @@ echo ""
 echo "首次转录会下载 ~2.9GB 的 Whisper large-v3 模型，喝杯咖啡。"
 if [[ "$CN_MODE" == "yes" ]]; then
   echo ""
-  echo "🇨🇳 大陆用户：模型下载也建议走镜像，把下面这行加到 ~/.zshrc 让以后所有终端生效（已存在则跳过）："
-  echo "  grep -q '^export HF_ENDPOINT=' ~/.zshrc 2>/dev/null || echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.zshrc"
+  echo "🇨🇳 大陆镜像偏好已写入配置；Homebrew USTC 镜像已写入 shell profile；模型下载走 hf-mirror.com。"
 else
   echo "国内网络慢可加："
-  echo "  export HF_ENDPOINT=https://hf-mirror.com"
+  echo "  python3 scripts/transcribe.py --set-default-cn on"
 fi
 echo ""
