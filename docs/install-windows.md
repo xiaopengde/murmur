@@ -80,7 +80,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 iwr -useb get.scoop.sh | iex
 
 # 把 main bucket 切到南大镜像（可选，加速 manifest 同步）
-scoop config SCOOP_REPO https://mirror.nju.edu.cn/scoop
+scoop config SCOOP_REPO https://mirrors.nju.edu.cn/git/scoop-installer/Scoop.git
 
 # 装四件套
 scoop install ffmpeg uv pandoc python
@@ -231,14 +231,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ---
 
 ## 9. Linux（Ubuntu/Debian/Fedora/Arch）
-
-**推荐一键安装**（自动检测大陆环境、配置 PyPI/HF 镜像偏好）：
-
-```bash
-bash scripts/install-linux.sh
-```
-
-手动安装：
 
 ```bash
 # Ubuntu / Debian
