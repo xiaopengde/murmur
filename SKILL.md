@@ -42,9 +42,6 @@ doctor 脚本会检查：`ffmpeg` / `uv` / `pandoc` / `python3` / 平台和芯�
 # macOS
 bash scripts/install-mac.sh
 
-# Linux / WSL
-bash scripts/install-linux.sh
-
 # Windows (需要管理员 PowerShell)
 powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1
 ```
@@ -236,7 +233,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
-| `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Linux: `bash scripts/install-linux.sh --cn`（PyPI 镜像装 uv）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，命中也会写入 cn_mode=on |
+| `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |
 | Mac 上 install-mac.sh 报 "command not found: brew" | Homebrew 没装 | 让用户先装 Homebrew（脚本会给提示） |
 | Windows 上 install-windows.ps1 报权限错误 | PowerShell 没用管理员模式 | 右键 PowerShell → 以管理员身份运行 |
 | Windows 上 winget 找不到 | 旧版 Windows 10 没装 winget | 让用户从 Microsoft Store 装 "App Installer" |
@@ -259,9 +256,6 @@ bash scripts/doctor.sh
 # 2) 缺啥装啥
 bash scripts/install-mac.sh
 
-# Linux / WSL
-bash scripts/install-linux.sh
-
 # 3) 转录（首次会问 md/docx，让用户回答）
 python scripts/transcribe.py 面试.m4a
 
@@ -275,7 +269,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 #    读 docs/prompts/retrospective.md，输出 复盘纪要.md
 ```
 
-整个过程**只有一次**用户交互（首次的 md/docx 选择），之后都是无人值守。
+整个过程**只有一次**用户交互（首次 onboarding 的格式 + 模型选择），之后都是无人值守。
 
 ---
 

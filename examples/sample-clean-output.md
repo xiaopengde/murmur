@@ -9,7 +9,7 @@
 
 > 时间：2026-05-14 11:00
 > 时长：约 29 分 30 秒
-> 说明：本稿基于 Whisper large-v3 自动转录，已清洗水词、修正以下专有名词识别错误：
+> 说明：本稿基于 Whisper large-v3-turbo 自动转录，已清洗水词、修正以下专有名词识别错误：
 > 美传→美团、IPPT→PPT、Chartboard→Chatbot、NiM as Judge→LLM as Judge、Rubik→Rubric、化学→幻觉、上市难→上手难、心证→上下文。
 > 每一段尽量保留原句结构与语气。
 

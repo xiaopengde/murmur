@@ -28,10 +28,53 @@ VALID_CN_MODES = {"on", "off", "auto"}
 # 已知的 Whisper "逻辑模型名"。用户在 CLI 里输这些短名，transcribe.py 会按引擎
 # （mlx-whisper / whisper-ctranslate2）自动映射成各自能识别的字符串。
 # 不在这个列表里的值也允许（直接透传），方便高级用户用完整 HF repo 名。
+DEFAULT_MODEL = "large-v3-turbo"
+
 KNOWN_MODELS = {
     "tiny", "base", "small", "medium",
     "large-v1", "large-v2", "large-v3", "large-v3-turbo",
 }
+
+# 首次 onboarding 时给 agent「候选框」用的精简模型列表（别一次塞太多）
+ONBOARDING_MODEL_CHOICES: tuple[dict[str, str], ...] = (
+    {
+        "id": "large-v3-turbo",
+        "label": "large-v3-turbo（推荐）",
+        "description": "质量高、下载约 1.5GB，默认首选",
+        "download_hint": "约 1.5GB",
+    },
+    {
+        "id": "large-v3",
+        "label": "large-v3",
+        "description": "最高质量，下载约 2.9GB，磁盘/网络充足时选",
+        "download_hint": "约 2.9GB",
+    },
+    {
+        "id": "medium",
+        "label": "medium",
+        "description": "CPU 机器更友好，下载约 1GB，质量略降",
+        "download_hint": "约 1GB",
+    },
+    {
+        "id": "small",
+        "label": "small",
+        "description": "更快更省空间（约 500MB），适合试跑",
+        "download_hint": "约 500MB",
+    },
+)
+
+ONBOARDING_FORMAT_CHOICES: tuple[dict[str, str], ...] = (
+    {
+        "id": "md",
+        "label": "Markdown (.md)",
+        "description": "程序员 / VS Code / Notion 友好",
+    },
+    {
+        "id": "docx",
+        "label": "Word (.docx)",
+        "description": "通用，能直接发给同事",
+    },
+)
 
 
 def _config_dir() -> Path:
@@ -70,6 +113,13 @@ def load() -> dict:
             save(cfg)
         except OSError:
             pass  # 迁移失败不阻塞读取
+    # 迁移：老用户只有 default_format、没有 onboarding_complete → 视为已完成
+    if cfg.get("default_format") in VALID_FORMATS and not cfg.get("onboarding_complete"):
+        cfg["onboarding_complete"] = True
+        try:
+            save(cfg)
+        except OSError:
+            pass
     return cfg
 
 
@@ -94,7 +144,7 @@ def set_default_format(fmt: str) -> None:
 
 
 def get_default_model() -> str | None:
-    """读出用户设置的默认模型；返回 None 表示用代码里的内置默认（large-v3）。"""
+    """读出用户设置的默认模型；返回 None 表示用代码里的内置默认（large-v3-turbo）。"""
     cfg = load()
     model = cfg.get("default_model")
     if isinstance(model, str) and model.strip():
@@ -111,35 +161,155 @@ def set_default_model(model: str) -> None:
     save(cfg)
 
 
-def prompt_for_default_format() -> str:
-    """首次使用时交互式询问，并保存到 config。"""
+def needs_onboarding() -> bool:
+    """是否尚未完成首次 onboarding（默认格式 + 默认模型）。"""
+    return not load().get("onboarding_complete")
+
+
+def _onboarding_model_ids() -> set[str]:
+    return {choice["id"] for choice in ONBOARDING_MODEL_CHOICES}
+
+
+def onboarding_payload() -> dict:
+    """给 agent 候选框用的结构化 onboarding 描述（可 JSON 序列化）。"""
+    format_options = []
+    for opt in ONBOARDING_FORMAT_CHOICES:
+        item = dict(opt)
+        item["recommended"] = opt["id"] == "md"
+        format_options.append(item)
+    model_options = []
+    for opt in ONBOARDING_MODEL_CHOICES:
+        item = dict(opt)
+        item["recommended"] = opt["id"] == DEFAULT_MODEL
+        model_options.append(item)
+    return {
+        "needs_onboarding": needs_onboarding(),
+        "config_path": str(config_path()),
+        "agent_instructions": (
+            "Use your AskQuestion / 候选框 tool to let the user pick default_format "
+            "and default_model. Do NOT choose for the user. Then run apply.command."
+        ),
+        "questions": [
+            {
+                "id": "default_format",
+                "prompt": "以后默认输出格式选哪个？",
+                "type": "single_select",
+                "options": format_options,
+            },
+            {
+                "id": "default_model",
+                "prompt": "以后默认离线 Whisper 模型选哪个？（首次转录会下载到 HuggingFace 缓存）",
+                "type": "single_select",
+                "options": model_options,
+            },
+        ],
+        "apply": {
+            "command": (
+                "python scripts/transcribe.py --init-defaults "
+                "--format <md|docx> --set-default-model <model>"
+            ),
+            "example": (
+                f"python scripts/transcribe.py --init-defaults "
+                f"--format md --set-default-model {DEFAULT_MODEL}"
+            ),
+        },
+    }
+
+
+def apply_onboarding(fmt: str, model: str) -> None:
+    """写入首次 onboarding 选择（格式 + 模型）并标记完成。"""
+    if fmt not in VALID_FORMATS:
+        raise ValueError(f"格式必须是 {VALID_FORMATS} 之一，收到：{fmt!r}")
+    model = model.strip()
+    if not model:
+        raise ValueError("模型名不能为空")
+    allowed = _onboarding_model_ids() | KNOWN_MODELS
+    if model not in allowed:
+        raise ValueError(f"模型必须是 {sorted(allowed)} 之一，收到：{model!r}")
+    cfg = load()
+    cfg["default_format"] = fmt
+    cfg["default_model"] = model
+    cfg["onboarding_complete"] = True
+    save(cfg)
+
+
+def emit_onboarding_required() -> None:
+    """非交互环境缺少 onboarding 时：stderr 人话 + stdout JSON，exit 10。"""
+    payload = onboarding_payload()
+    sys.stderr.write(
+        "❌ 首次使用 Murmur：请先完成 onboarding（默认格式 + 默认离线模型）。\n"
+        "   Agent：用 AskQuestion / 候选框让用户选择，再运行 apply.example（见下方 JSON）。\n"
+        "   或单独查看：python scripts/transcribe.py --onboarding\n"
+    )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    sys.exit(10)
+
+
+def prompt_for_onboarding_tty() -> tuple[str, str]:
+    """TTY 下交互式首次 onboarding（格式 + 模型）。"""
     print()
     print("首次使用 Murmur 👋")
-    print("以后默认输出格式选哪个？")
-    print("  [1] markdown (.md)  — 程序员 / VS Code / Notion 友好")
-    print("  [2] word (.docx)    — 通用，能直接发给同事")
+    print("先选两个默认值（之后随时可改）。")
+    print()
+    print("【1/2】以后默认输出格式？")
+    for i, opt in enumerate(ONBOARDING_FORMAT_CHOICES, 1):
+        print(f"  [{i}] {opt['label']}  — {opt['description']}")
     print()
     print(f"配置会存到：{config_path()}")
-    print("（之后想改：python transcribe.py --set-default md  或  docx）")
     print()
 
-    while True:
+    fmt: str | None = None
+    while fmt is None:
         try:
-            choice = input("请输入 1 或 2：").strip()
+            choice = input("格式请输入 1 或 2：").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n已取消。")
             sys.exit(1)
         if choice in ("1", "md", "markdown"):
             fmt = "md"
-            break
-        if choice in ("2", "docx", "word"):
+        elif choice in ("2", "docx", "word"):
             fmt = "docx"
-            break
-        print("没听清，请输入 1 或 2。")
+        else:
+            print("没听清，请输入 1 或 2。")
 
-    set_default_format(fmt)
-    print(f"已保存默认格式：{fmt}（之后随时可用 --set-default 切换）\n")
-    return fmt
+    print()
+    print("【2/2】以后默认离线 Whisper 模型？（首次会下载到 ~/.cache/huggingface/hub）")
+    for i, opt in enumerate(ONBOARDING_MODEL_CHOICES, 1):
+        rec = " ← 推荐" if opt["id"] == DEFAULT_MODEL else ""
+        print(f"  [{i}] {opt['label']}  — {opt['description']}{rec}")
+    print()
+
+    model: str | None = None
+    while model is None:
+        try:
+            choice = input(f"模型请输入 1–{len(ONBOARDING_MODEL_CHOICES)}：").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已取消。")
+            sys.exit(1)
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(ONBOARDING_MODEL_CHOICES):
+                model = ONBOARDING_MODEL_CHOICES[idx - 1]["id"]
+                continue
+        lowered = choice.lower()
+        for opt in ONBOARDING_MODEL_CHOICES:
+            if lowered == opt["id"]:
+                model = opt["id"]
+                break
+        if model is None:
+            print(f"没听清，请输入 1–{len(ONBOARDING_MODEL_CHOICES)} 或模型短名。")
+
+    apply_onboarding(fmt, model)
+    print(f"\n已保存默认格式：{fmt}，默认模型：{model}\n")
+    return fmt, model
+
+
+def prompt_for_default_format() -> str:
+    """兼容旧调用：TTY 走完整 onboarding；非 TTY 抛给 agent 流程。"""
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        fmt, _model = prompt_for_onboarding_tty()
+        return fmt
+    emit_onboarding_required()
 
 
 # ---------- 大陆镜像偏好（cn_mode） ----------

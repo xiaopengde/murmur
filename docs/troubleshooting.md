@@ -79,26 +79,14 @@ ffmpeg -i 长录音.m4a -f segment -segment_time 900 -c copy 片段_%03d.m4a
 **解法**：
 
 - 有 NVIDIA GPU：装 CUDA Toolkit 12.x，whisper-ctranslate2 自动启用 GPU
-- 没 GPU：换小模型（编辑 `transcribe.py`，`large-v3` 改 `medium` 或 `small`，速度 3-5x，准确率小降）
+- 没 GPU：换更小模型：`--model medium` 或 `--set-default-model medium`；要更高质量可用 `--model large-v3`
 - 或拆分长音频并行跑（开多个 PowerShell 窗口）
 
 ### 症状：HuggingFace 模型下载卡死 / 失败
 
 **原因**：国内访问 huggingface.co 不稳定。
 
-**解法**（推荐，持久生效）：
-
-```bash
-# Mac / Linux / WSL
-python3 scripts/transcribe.py --set-default-cn on
-
-# Windows PowerShell
-python scripts\transcribe.py --set-default-cn on
-```
-
-之后 `transcribe.py` 会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像。单次覆盖可加 `--cn`。
-
-也可手动设环境变量后重跑（模型只下一次）：
+**解法**：用镜像
 
 ```bash
 # Mac/Linux
@@ -107,6 +95,8 @@ export HF_ENDPOINT=https://hf-mirror.com
 # Windows PowerShell
 $env:HF_ENDPOINT = "https://hf-mirror.com"
 ```
+
+设完重跑。模型只下一次，之后离线可用。
 
 ---
 

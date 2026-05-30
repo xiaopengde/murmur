@@ -141,7 +141,14 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 if [[ -f "$CONFIG_FILE" ]]; then
   FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
   CN_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('cn_mode','auto'))" 2>/dev/null || echo "auto")
-  ok "Murmur 配置已存在（默认输出格式：${FORMAT}）"
+  ONBOARD_DONE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('onboarding_complete', False))" 2>/dev/null || echo "False")
+  if [[ "$ONBOARD_DONE" == "True" ]]; then
+    MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_model','(内置默认)'))" 2>/dev/null || echo "?")
+    ok "Murmur onboarding 已完成（默认格式：${FORMAT}，默认模型：${MODEL}）"
+  else
+    warn "Murmur onboarding 未完成（已有配置但不完整）"
+    info "  Agent：python3 scripts/transcribe.py --onboarding → 候选框 → --init-defaults"
+  fi
   case "$CN_MODE" in
     on)
       ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）"
@@ -164,11 +171,7 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 && comman
   ok "核心环境就绪，可以开始转录！"
   echo "    试试：python3 scripts/transcribe.py 你的录音.m4a"
 else
-  if [[ "$OS" == "Darwin" ]]; then
-    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
-  else
-    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-linux.sh"
-  fi
+  err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
   if [[ "$SMOKE_MODE" == "yes" ]]; then
     err "依赖缺失，跳过 --smoke 端到端测试"
     exit 1

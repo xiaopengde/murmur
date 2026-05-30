@@ -80,7 +80,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 iwr -useb get.scoop.sh | iex
 
 # 把 main bucket 切到南大镜像（可选，加速 manifest 同步）
-scoop config SCOOP_REPO https://mirrors.nju.edu.cn/git/scoop-installer/Scoop.git
+scoop config SCOOP_REPO https://mirror.nju.edu.cn/scoop
 
 # 装四件套
 scoop install ffmpeg uv pandoc python
@@ -256,6 +256,7 @@ Linux 也是走 whisper-ctranslate2，CUDA GPU 自动启用。
 
 ```powershell
 # 删模型缓存
+Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\huggingface\hub\models--Systran--faster-whisper-large-v3-turbo" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\huggingface\hub\models--Systran--faster-whisper-large-v3" -ErrorAction SilentlyContinue
 
 # 删 Murmur 配置

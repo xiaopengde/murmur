@@ -14,9 +14,9 @@
 
 把任意一段会议 / 面试 / 课堂 / 播客录音在自己电脑上转成可读的 Markdown 或 Word 文档：
 
-- **本地跑**：模型只下一次（约 3GB），之后全程离线，敏感内容不出本机
+- **本地跑**：模型只下一次（默认 large-v3-turbo 约 1.5GB），之后全程离线，敏感内容不出本机
 - **足够快**：M2/M3 上 30 分钟录音约 10-15 分钟跑完；Windows / Intel Mac CPU 也能跑
-- **足够准**：基于 OpenAI Whisper large-v3 + 中文常见 ASR 错词修正
+- **足够准**：基于 OpenAI Whisper large-v3-turbo + 中文常见 ASR 错词修正
 - **AI agent 原生**：给 Claude Code / Codex / GitHub Copilot / Cursor 一句话，端到端跑完整流程
 - **格式自由**：首次问一次默认要 md 还是 docx，之后随时改
 
@@ -79,7 +79,7 @@ agent 会自动按 [SKILL.md](SKILL.md) 走完整套流程：
 1. 跑 `doctor` 体检脚本，看你环境缺什么
 2. 缺啥装啥（Mac 跑 `install-mac.sh`，Win 跑 `install-windows.ps1`）
 3. **首次**会问你"以后默认 md 还是 docx？"——你回 1 或 2 即可
-4. 跑转录（首次会下载约 2.9GB 模型，之后离线）
+4. 跑转录（首次会下载约 1.5GB 模型，默认 large-v3-turbo，之后离线）
 5. 用 LLM 自动清洗成可读 Markdown（带说话人、修错字、分章节）
 6. 默认 docx 时再转 Word
 
@@ -152,9 +152,7 @@ murmur/
 ├── scripts/
 │   ├── doctor.sh / doctor.ps1         ← 环境体检
 │   ├── install-mac.sh                 ← macOS 一键安装
-│   ├── install-linux.sh               ← Linux / WSL 一键安装
 │   ├── install-windows.ps1            ← Windows 一键安装
-│   ├── cn_env.py                      ← 大陆环境检测（install/doctor/transcribe 共用）
 │   ├── transcribe.py                  ← 主入口（跨平台）
 │   ├── md2docx.py                     ← Markdown → Word
 │   └── config.py                      ← 默认格式配置管理
@@ -173,7 +171,7 @@ murmur/
         ▼
 16kHz 单声道 WAV（临时）
         │
-        │  本地 Whisper large-v3
+        │  本地 Whisper large-v3-turbo
         │   ├─ Apple Silicon → mlx-whisper（GPU 加速）
         │   └─ Win/Linux/Intel Mac → whisper-ctranslate2（CPU/CUDA）
         ▼
@@ -205,7 +203,7 @@ murmur/
 ## 常见问题
 
 **Q：模型有多大？下载慢怎么办？**
-A：large-v3 约 2.9GB。国内首次下慢的话，跑 `transcribe.py` 时加 `--cn`，它会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖也走清华源）。脚本默认还会按时区/语言/系统区域自动判断，命中就直接启用。
+A：默认 large-v3-turbo 约 1.5GB；若改用 large-v3 约 2.9GB。国内首次下慢的话，跑 `transcribe.py` 时加 `--cn`，它会自动给子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖也走清华源）。脚本默认还会按时区/语言/系统区域自动判断，命中就直接启用。
 
 不想每次都加 `--cn`？跑一次 `python scripts/transcribe.py --set-default-cn on` 持久化偏好；或直接 `bash scripts/install-mac.sh --cn`，安装脚本会自动帮你把偏好写进去。想长期手动生效也可以 `export HF_ENDPOINT=https://hf-mirror.com`（Win: `$env:HF_ENDPOINT="https://hf-mirror.com"`）。
 
@@ -248,7 +246,7 @@ A：MIT License，可以。Whisper 模型本身也是 MIT 开源，无商用限�
 
 > *Please install this skill locally for me: https://github.com/xiaopengde/murmur*
 
-The agent will detect whether you're on Claude Code / Copilot / Cursor / Codex and clone Murmur into the right skills directory. Then say *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"* and it'll run env doctor, install missing deps, ask you once for default md vs docx, transcribe with Whisper large-v3 (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
+The agent will detect whether you're on Claude Code / Copilot / Cursor / Codex and clone Murmur into the right skills directory. Then say *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"* and it'll run env doctor, install missing deps, ask you once for default md vs docx, transcribe with Whisper large-v3-turbo (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
 
 **Manual usage:** `bash scripts/install-mac.sh` (Mac) / `scripts/install-windows.ps1` (Win) → `python scripts/transcribe.py recording.m4a`.
 
