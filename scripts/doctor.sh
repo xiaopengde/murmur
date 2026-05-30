@@ -8,12 +8,15 @@
 #   bash scripts/doctor.sh --smoke      # 体检 + 端到端烟雾测试（生成 2 秒音频跑完整 pipeline）
 
 SMOKE_MODE="no"
+STRICT_MODE="no"
 for arg in "$@"; do
   case "$arg" in
     --smoke) SMOKE_MODE="yes" ;;
+    --strict) STRICT_MODE="yes" ;;
     -h|--help)
-      echo "用法: bash scripts/doctor.sh [--smoke]"
+      echo "用法: bash scripts/doctor.sh [--smoke] [--strict]"
       echo "  --smoke   除常规体检外，生成 2 秒测试音频跑一遍完整 pipeline"
+      echo "  --strict  核心依赖缺失或 onboarding 未完成时返回非 0"
       exit 0
       ;;
     *) echo "⚠️  忽略未知参数：$arg" ;;
@@ -59,6 +62,11 @@ else
   exit 1
 fi
 echo ""
+echo "--------------------------------"
+echo "核心依赖状态"
+echo "--------------------------------"
+CORE_OK=1
+ONBOARDING_OK=0
 
 # ---------- ffmpeg ----------
 if command -v ffmpeg >/dev/null 2>&1; then
@@ -66,6 +74,7 @@ if command -v ffmpeg >/dev/null 2>&1; then
   ok "ffmpeg 已安装（${VER}）"
 else
   err "ffmpeg 未安装"
+  CORE_OK=0
   if [[ "$OS" == "Darwin" ]]; then
     echo "    → 安装：brew install ffmpeg（如无 brew：先装 https://brew.sh）"
   else
@@ -81,6 +90,7 @@ if command -v uvx >/dev/null 2>&1; then
   ok "uv 已安装（${VER}）"
 else
   err "uv 未安装"
+  CORE_OK=0
   if [[ "$OS" == "Darwin" ]]; then
     echo "    → 安装：brew install uv  （或 curl -LsSf https://astral.sh/uv/install.sh | sh）"
   else
@@ -114,6 +124,7 @@ if command -v python3 >/dev/null 2>&1; then
   fi
 else
   err "python3 未安装"
+  CORE_OK=0
   if [[ "$OS" == "Darwin" ]]; then
     echo "    → macOS 自带 python3；如缺失：brew install python@3.11"
   else
@@ -136,46 +147,66 @@ else
 fi
 
 # ---------- Murmur 配置 ----------
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/murmur"
-CONFIG_FILE="$CONFIG_DIR/config.json"
-if [[ -f "$CONFIG_FILE" ]]; then
-  FORMAT=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_format','?'))" 2>/dev/null || echo "?")
-  CN_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('cn_mode','auto'))" 2>/dev/null || echo "auto")
-  ONBOARD_DONE=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('onboarding_complete', False))" 2>/dev/null || echo "False")
-  if [[ "$ONBOARD_DONE" == "True" ]]; then
-    MODEL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('default_model','(内置默认)'))" 2>/dev/null || echo "?")
+echo ""
+echo "--------------------------------"
+echo "Murmur onboarding 状态"
+echo "--------------------------------"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if command -v python3 >/dev/null 2>&1; then
+  CONFIG_STATUS=$(PYTHONPATH="$SCRIPT_DIR" python3 - <<'PY'
+import config
+cfg = config.load()
+print(config.config_path())
+print(cfg.get('default_format', '?'))
+print(cfg.get('default_model', '?'))
+print(config.get_cn_mode())
+print('done' if not config.needs_onboarding() else 'needs')
+PY
+)
+  CONFIG_FILE=$(printf '%s
+' "$CONFIG_STATUS" | sed -n '1p')
+  FORMAT=$(printf '%s
+' "$CONFIG_STATUS" | sed -n '2p')
+  MODEL=$(printf '%s
+' "$CONFIG_STATUS" | sed -n '3p')
+  CN_MODE=$(printf '%s
+' "$CONFIG_STATUS" | sed -n '4p')
+  ONBOARD_STATE=$(printf '%s
+' "$CONFIG_STATUS" | sed -n '5p')
+  if [[ "$ONBOARD_STATE" == "done" ]]; then
+    ONBOARDING_OK=1
     ok "Murmur onboarding 已完成（默认格式：${FORMAT}，默认模型：${MODEL}）"
   else
-    warn "Murmur onboarding 未完成（已有配置但不完整）"
-    info "  Agent：python3 scripts/transcribe.py --onboarding → 候选框 → --init-defaults"
+    warn "Murmur onboarding 未完成（配置：${CONFIG_FILE}）"
+    info "下一步必须运行：python3 scripts/transcribe.py --onboarding"
+    info "Agent：看到 needs_onboarding=true 后必须用候选框询问用户，再运行 --init-defaults"
   fi
   case "$CN_MODE" in
-    on)
-      ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）"
-      ;;
-    off)
-      info "大陆镜像偏好：off（每次转录走官方源；国内慢可改：python3 scripts/transcribe.py --set-default-cn on）"
-      ;;
-    *)
-      info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python3 scripts/transcribe.py --set-default-cn on）"
-      ;;
+    on) ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" ;;
+    off) info "大陆镜像偏好：off（每次转录走官方源；国内慢可改：python3 scripts/transcribe.py --set-default-cn on）" ;;
+    *) info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python3 scripts/transcribe.py --set-default-cn on）" ;;
   esac
 else
-  info "Murmur 还未初始化，首次跑 transcribe.py 时会问你 md/docx 默认值"
-  info "国内用户建议先跑：python3 scripts/transcribe.py --set-default-cn on"
+  warn "无法读取 Murmur onboarding 状态：python3 未安装"
 fi
 
 echo ""
 echo "================================"
-if command -v ffmpeg >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-  ok "核心环境就绪，可以开始转录！"
+if [[ "$CORE_OK" == "1" && "$ONBOARDING_OK" == "1" ]]; then
+  ok "核心环境和 onboarding 均就绪，可以开始转录！"
   echo "    试试：python3 scripts/transcribe.py 你的录音.m4a"
+elif [[ "$CORE_OK" == "1" ]]; then
+  warn "核心环境就绪，但 onboarding 未完成，暂不能开始转录。"
+  echo "    下一步必须运行：python3 scripts/transcribe.py --onboarding"
 else
   err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
   if [[ "$SMOKE_MODE" == "yes" ]]; then
     err "依赖缺失，跳过 --smoke 端到端测试"
     exit 1
   fi
+fi
+if [[ "$STRICT_MODE" == "yes" && ( "$CORE_OK" != "1" || "$ONBOARDING_OK" != "1" ) ]]; then
+  exit 1
 fi
 echo "================================"
 echo ""
@@ -193,7 +224,6 @@ info "生成 2 秒测试音频 → 跑完整 pipeline → 校验输出"
 info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
 echo ""
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SMOKE_DIR="$(mktemp -d -t murmur-smoke.XXXXXX)"
 SMOKE_AUDIO="$SMOKE_DIR/smoke.m4a"
 SMOKE_KEEP="no"
@@ -236,9 +266,17 @@ ok "测试音频已生成：$SMOKE_AUDIO ($(du -h "$SMOKE_AUDIO" | awk '{print $
 echo ""
 
 # 2) 跑 transcribe.py（强制 tiny + md，避免污染用户默认配置）
-info "[2/3] 跑 transcribe.py（--model tiny --format md）..."
+info "[2/3] 跑 transcribe.py（临时配置 --model tiny --format md）..."
+SMOKE_CONFIG_HOME="$SMOKE_DIR/config"
+if ! XDG_CONFIG_HOME="$SMOKE_CONFIG_HOME" python3 "$SCRIPT_DIR/transcribe.py" \
+       --init-defaults --format md --set-default-model tiny \
+       >"$SMOKE_DIR/init.log" 2>&1; then
+  err "临时 onboarding 初始化失败。日志："
+  cat "$SMOKE_DIR/init.log" | sed 's/^/    /'
+  SMOKE_KEEP="yes"; exit 3
+fi
 START_TS=$(date +%s)
-if ! python3 "$SCRIPT_DIR/transcribe.py" "$SMOKE_AUDIO" \
+if ! XDG_CONFIG_HOME="$SMOKE_CONFIG_HOME" python3 "$SCRIPT_DIR/transcribe.py" "$SMOKE_AUDIO" \
        --model tiny --format md --output-dir "$SMOKE_DIR" \
        >"$SMOKE_DIR/transcribe.log" 2>&1; then
   err "transcribe.py 失败（exit=$?）。日志末尾："

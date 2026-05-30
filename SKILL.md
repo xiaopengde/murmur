@@ -34,9 +34,12 @@ bash scripts/doctor.sh
 powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1
 ```
 
-doctor 脚本会检查：`ffmpeg` / `uv` / `pandoc` / `python3` / 平台和芯片 / HuggingFace 缓存。
+doctor 脚本会分两块输出：
 
-**如果有 ❌**，跑对应的 install 脚本：
+1. **核心依赖状态**：`ffmpeg` / `uvx` / `pandoc` / `python3` / 平台和芯片 / HuggingFace 缓存
+2. **Murmur onboarding 状态**：默认输出格式、默认离线模型是否已经由用户明确选择
+
+**如果核心依赖有 ❌**，跑对应的 install 脚本：
 
 ```bash
 # macOS
@@ -46,9 +49,16 @@ bash scripts/install-mac.sh
 powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1
 ```
 
-安装完再跑一次 `doctor`，全 ✅ 才进入下一步。**不要假设用户已经装了 ffmpeg / uv / pandoc**——这是最常见的 onboarding 翻车点。
+安装完再跑一次 `doctor`。如果要在自动化里强校验，使用 strict 模式：
 
-**端到端验证**（首次安装强烈推荐，或排查问题时）：
+```bash
+bash scripts/doctor.sh --strict
+powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Strict
+```
+
+`--strict` / `-Strict` 只有在核心依赖齐全且 onboarding 已完成时才返回 0；依赖缺失或 onboarding 未完成都会返回非 0。**doctor 如果提示 onboarding 未完成，不要说“可以开始转录”，下一步必须跑 `python scripts/transcribe.py --onboarding`。**
+
+**端到端验证**（首次安装强烈推荐，或排查问题时；会使用临时配置，不污染用户默认值）：
 
 ```bash
 bash scripts/doctor.sh --smoke                                    # macOS / Linux
@@ -57,35 +67,43 @@ powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Smoke  # Windows
 
 会自动生成 2 秒测试音频跑完整 pipeline（用 tiny 模型，首次约 75MB），通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
 
-### 步骤 B — 询问默认输出格式（首次使用时）
+### 步骤 B — 新用户 / 首次 onboarding（硬门禁）
 
-`transcribe.py` 自己会处理——首次跑时会停下来问：
-
-```
-首次使用 Murmur 👋
-以后默认输出格式选哪个？
-  [1] markdown (.md)
-  [2] word (.docx)
-请输入 1 或 2：
-```
-
-**作为 agent**：如果是你（agent）在替用户跑，**不要替用户做选择**。把这个交互交给用户回答，或者主动问一句"你以后想默认输出 md 还是 docx？我帮你存好"。
-
-如果用户说"这次先用 docx 试一次，别改默认"，那就：
+**无论用户是否已经给了音频文件，都必须先跑：**
 
 ```bash
-python scripts/transcribe.py 录音.m4a --format docx
+python scripts/transcribe.py --onboarding
 ```
 
-`--format` 是单次覆盖，不动 config。
+读取 JSON：
+
+- 如果 `needs_onboarding=false`：可以进入步骤 C。
+- 如果 `needs_onboarding=true`：agent **必须**使用 AskQuestion / 候选框让用户选择，不能自己决定，不能直接执行 JSON 里的 example。JSON 会明确包含：
+  - `must_ask_user: true`
+  - `do_not_choose_for_user: true`
+  - `do_not_run_example_without_user_choice: true`
+
+必须向用户询问两个候选项：
+
+1. 默认输出格式：`md` 或 `docx`
+2. 默认离线模型：`large-v3-turbo` / `large-v3` / `medium` / `small`
+
+用户选完后，运行：
+
+```bash
+python scripts/transcribe.py --init-defaults --format <md|docx> --set-default-model <model>
+```
+
+只有这个命令成功后，才允许继续转录。`--format` / `--model` 是单次覆盖参数，**不能绕过首次 onboarding**；未完成 onboarding 时，转录主流程会直接退出并要求先完成 onboarding。
 
 如果用户后来想改默认：
 
 ```bash
 python scripts/transcribe.py --set-default md       # 或 docx
+python scripts/transcribe.py --set-default-model medium
 ```
 
-### 步骤 C — 跑转录
+### 步骤 C — 跑转录并转述进度
 
 ```bash
 python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--model medium] [--cn]
@@ -99,6 +117,8 @@ python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--mode
    - **Windows / Linux / Intel Mac** → `uvx whisper-ctranslate2`（CTranslate2 后端，CPU 也很快）
 3. 输出 `转录原稿.txt` + `字幕.srt` 到目标目录
 4. 清理临时 WAV
+
+**Codex / agent 进度转述要求**：转录时必须同步等待终端输出；每约 30 秒 poll 一次终端。看到新的 `📥 下载`、`⏳ 推理`、`✅ 完成` 心跳或阶段变化时，必须用前台消息简短转述给用户（例如“模型已下载 40%”“仍在推理，已用时 2:00”“转录完成，正在整理输出”），不要让用户长时间面对静默终端。
 
 **🇨🇳 大陆网络**：transcribe.py 会按时区/语言自动判断是否在大陆，命中就给 whisper 子进程注入：
 - `HF_ENDPOINT=https://hf-mirror.com`（模型下载走 hf-mirror）
@@ -121,15 +141,20 @@ python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自�
 ```bash
 python scripts/transcribe.py 录音.m4a --model medium                   # 单次
 python scripts/transcribe.py --set-default-model medium                # 永久（写入 config）
-python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3
+python scripts/transcribe.py --set-default-model ""                    # 清空恢复内置默认 large-v3-turbo
 ```
 
-支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo` 短名，会按引擎自动映射（mlx-whisper → `mlx-community/whisper-<name>-mlx`，whisper-ctranslate2 → 原样）。也支持透传完整 HF repo 名给高级用户。
+支持 `tiny / base / small / medium / large-v2 / large-v3 / large-v3-turbo` 短名，会按引擎自动映射：
+
+- Apple Silicon / `mlx-whisper` 使用显式 HuggingFace repo 映射（例如 `large-v3-turbo` → `mlx-community/whisper-large-v3-turbo`，不是 `...-turbo-mlx`）
+- `whisper-ctranslate2` 透传短名（如 `large-v3-turbo` / `medium`）
+
+也支持透传完整 HF repo 名给高级用户。转录失败时，脚本会打印 resolved model，并尽量区分网络问题与 repo 不存在 / 私有 / 映射错误。
 
 **预期耗时**：
 - M2/M3：音频时长 × 0.3-0.5
 - Windows / Linux CPU：音频时长 × 1-2（首次会更慢，模型加载约 30s）
-- 首次跑会下载 ~2.9GB 模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
+- 首次跑会下载模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
 
 **⚠️ 关键约定**：脚本里**已经默认**关掉了 `condition-on-previous-text`，因为这是 No.1 大坑（不关会输出"X 点 X 点 X 点……"或"谢谢观看"成段重复）。**不要**修改这个默认值。
 

@@ -6,7 +6,8 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1 -Smoke   # 加端到端烟雾测试
 
 param(
-    [switch]$Smoke
+    [switch]$Smoke,
+    [switch]$Strict
 )
 
 $ErrorActionPreference = "Continue"
@@ -31,6 +32,11 @@ Write-Info "操作系统：$os"
 Write-Info "芯片架构：$arch"
 Write-Warn2 "Windows → 将使用 whisper-ctranslate2（CPU；如有 NVIDIA GPU 可后续启用 CUDA）"
 Write-Host ""
+Write-Host "--------------------------------"
+Write-Host "核心依赖状态"
+Write-Host "--------------------------------"
+$coreOk = $true
+$onboardingOk = $false
 
 # ---------- ffmpeg ----------
 if (Test-Cmd ffmpeg) {
@@ -38,6 +44,7 @@ if (Test-Cmd ffmpeg) {
     Write-Ok "ffmpeg 已安装（$ver）"
 } else {
     Write-Err "ffmpeg 未安装"
+    $coreOk = $false
     Write-Host "    → 安装：winget install Gyan.FFmpeg"
     Write-Host "      或：scoop install ffmpeg"
     Write-Host "      或：choco install ffmpeg"
@@ -49,6 +56,7 @@ if (Test-Cmd uvx) {
     Write-Ok "uv 已安装（$ver）"
 } else {
     Write-Err "uv 未安装"
+    $coreOk = $false
     Write-Host "    → 安装：winget install astral-sh.uv"
     Write-Host "      或：powershell -c `"irm https://astral.sh/uv/install.ps1 | iex`""
 }
@@ -75,6 +83,7 @@ if ($pythonCmd) {
     Write-Ok "$pythonCmd 已安装（$ver）"
 } else {
     Write-Err "Python 未安装"
+    $coreOk = $false
     Write-Host "    → 安装：winget install Python.Python.3.11"
     Write-Host "      或从 https://python.org 下载"
 }
@@ -95,39 +104,44 @@ if (Test-Path $hfCache) {
 }
 
 # ---------- Murmur 配置 ----------
-$configDir = "$env:APPDATA\Murmur"
-$configFile = "$configDir\config.json"
-if (Test-Path $configFile) {
-    try {
-        $cfg = Get-Content $configFile -Raw | ConvertFrom-Json
-        $fmt = if ($cfg.default_format) { $cfg.default_format } else { "?" }
-        $onboardDone = if ($null -ne $cfg.onboarding_complete) { [bool]$cfg.onboarding_complete } else { $false }
-        if ($onboardDone) {
-            $model = if ($cfg.default_model) { $cfg.default_model } else { "(内置默认)" }
-            Write-Ok "Murmur onboarding 已完成（默认格式：$fmt，默认模型：$model）"
-        } else {
-            Write-Warn2 "Murmur onboarding 未完成（已有配置但不完整）"
-            Write-Info "  Agent：python scripts\transcribe.py --onboarding → 候选框 → --init-defaults"
-        }
-        $cnMode = if ($cfg.cn_mode) { $cfg.cn_mode } else { "auto" }
-        switch ($cnMode) {
-            "on"  { Write-Ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" }
-            "off" { Write-Info "大陆镜像偏好：off（每次走官方源；国内慢可改：python scripts\transcribe.py --set-default-cn on）" }
-            default { Write-Info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python scripts\transcribe.py --set-default-cn on）" }
-        }
-    } catch {
-        Write-Warn2 "Murmur 配置文件存在但解析失败：$configFile"
+Write-Host ""
+Write-Host "--------------------------------"
+Write-Host "Murmur onboarding 状态"
+Write-Host "--------------------------------"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ($pythonCmd) {
+    $env:PYTHONPATH = $scriptDir
+    $status = & $pythonCmd -c "import config; cfg=config.load(); print(config.config_path()); print(cfg.get('default_format','?')); print(cfg.get('default_model','?')); print(config.get_cn_mode()); print('done' if not config.needs_onboarding() else 'needs')"
+    $configFile = $status[0]
+    $fmt = $status[1]
+    $model = $status[2]
+    $cnMode = $status[3]
+    $state = $status[4]
+    if ($state -eq "done") {
+        $onboardingOk = $true
+        Write-Ok "Murmur onboarding 已完成（默认格式：$fmt，默认模型：$model）"
+    } else {
+        Write-Warn2 "Murmur onboarding 未完成（配置：$configFile）"
+        Write-Info "下一步必须运行：python scripts\transcribe.py --onboarding"
+        Write-Info "Agent：看到 needs_onboarding=true 后必须用候选框询问用户，再运行 --init-defaults"
+    }
+    switch ($cnMode) {
+        "on"  { Write-Ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" }
+        "off" { Write-Info "大陆镜像偏好：off（每次走官方源；国内慢可改：python scripts\transcribe.py --set-default-cn on）" }
+        default { Write-Info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python scripts\transcribe.py --set-default-cn on）" }
     }
 } else {
-    Write-Info "Murmur 还未初始化，首次跑 transcribe.py 时会问你 md/docx 默认值"
-    Write-Info "国内用户建议先跑：python scripts\transcribe.py --set-default-cn on"
+    Write-Warn2 "无法读取 Murmur onboarding 状态：Python 未安装"
 }
 
 Write-Host ""
 Write-Host "================================"
-if ((Test-Cmd ffmpeg) -and (Test-Cmd uvx) -and $pythonCmd) {
-    Write-Ok "核心环境就绪，可以开始转录！"
+if ($coreOk -and $onboardingOk) {
+    Write-Ok "核心环境和 onboarding 均就绪，可以开始转录！"
     Write-Host "    试试：$pythonCmd scripts\transcribe.py 你的录音.m4a"
+} elseif ($coreOk) {
+    Write-Warn2 "核心环境就绪，但 onboarding 未完成，暂不能开始转录。"
+    Write-Host "    下一步必须运行：python scripts\transcribe.py --onboarding"
 } else {
     Write-Err "缺少核心依赖，请按上方提示安装；或一键跑：powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1"
     if ($Smoke) {
@@ -135,6 +149,7 @@ if ((Test-Cmd ffmpeg) -and (Test-Cmd uvx) -and $pythonCmd) {
         exit 1
     }
 }
+if ($Strict -and (-not $coreOk -or -not $onboardingOk)) { exit 1 }
 Write-Host "================================"
 Write-Host ""
 
@@ -171,7 +186,20 @@ try {
     Write-Host ""
 
     # 2) 跑 transcribe.py
-    Write-Info "[2/3] 跑 transcribe.py（--model tiny --format md）..."
+    Write-Info "[2/3] 跑 transcribe.py（临时配置 --model tiny --format md）..."
+    $oldAppData = $env:APPDATA
+    $env:APPDATA = Join-Path $smokeDir "config"
+    $initLog = Join-Path $smokeDir "init.log"
+    $init = Start-Process -FilePath $pythonCmd -ArgumentList @(
+        (Join-Path $scriptDir "transcribe.py"),
+        "--init-defaults", "--format", "md", "--set-default-model", "tiny"
+    ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $initLog -RedirectStandardError "$initLog.err"
+    if ($init.ExitCode -ne 0) {
+        Write-Err "临时 onboarding 初始化失败"
+        Get-Content $initLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+        $smokeKeep = $true
+        exit 3
+    }
     $start = Get-Date
     $logFile = Join-Path $smokeDir "transcribe.log"
     $py = Start-Process -FilePath $pythonCmd -ArgumentList @(
@@ -181,6 +209,7 @@ try {
         "--format", "md",
         "--output-dir", $smokeDir
     ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    $env:APPDATA = $oldAppData
     $elapsed = [int]((Get-Date) - $start).TotalSeconds
     if ($py.ExitCode -ne 0) {
         Write-Err "transcribe.py 失败（exit=$($py.ExitCode)）。日志末尾："
