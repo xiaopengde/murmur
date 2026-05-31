@@ -218,6 +218,8 @@ python scripts/transcribe.py 录音.m4a --model-source hf          # 强制原 H
 
 首次没有模型缓存时，进度会先显示 `📥 模型下载/准备中...`；确认模型缓存就绪或下载完成后，才会切换为 `⏳ 转录推理中...`。
 
+> ⚠️ **走 ModelScope 时别开全局 VPN**：ModelScope 是国内 CDN，大陆直连最快；开着全局 VPN/代理会绕到海外再回来，反而更慢。如果走的是 HuggingFace 路线则相反——那时开 VPN 才快。
+
 不想每次都加 `--cn`？跑一次 `python scripts/transcribe.py --set-default-cn on` 持久化偏好；或直接 `bash scripts/install-mac.sh --cn`，安装脚本会自动帮你把偏好写进去。
 
 **Q：能换更小/更快的模型吗？**

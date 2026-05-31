@@ -246,6 +246,7 @@ def main() -> int:
         )
         if model_source_label == "modelscope":
             print(f"ℹ️  本次使用 ModelScope 本地模型：{resolved_model}")
+            print("   💡 ModelScope 是国内源，直连最快；如开了全局 VPN/代理，建议先临时关闭再下载，否则反而更慢。")
         run_transcribe(wav, output_dir, args.lang, engine, prefix, resolved_model, child_env)
 
         try:
