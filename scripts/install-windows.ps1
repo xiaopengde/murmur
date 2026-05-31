@@ -125,6 +125,7 @@ function Install-Tool {
 
     if (-not $installed) {
         Write-Err "$DisplayName 安装失败。winget / Scoop / pip 兜底均未成功，请见 docs/install-windows.md 手动安装。"
+        return
     }
     Write-Ok "$DisplayName 安装完成"
 }
@@ -186,8 +187,9 @@ if (-not (Test-Cmd uvx)) {
     }
     if (-not $uvOk) {
         Write-Err "uv 安装失败。可手动：pip install -i $PypiCn uv"
+    } else {
+        Write-Ok "uv 安装完成"
     }
-    Write-Ok "uv 安装完成"
 } else {
     Write-Ok "uv 已安装，跳过"
 }
