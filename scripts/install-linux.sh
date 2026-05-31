@@ -137,6 +137,7 @@ if command -v uvx >/dev/null 2>&1; then
   ok "uv 已安装，跳过"
 else
   info "安装 uv..."
+  UV_JUST_INSTALLED=1
   if [[ "$CN_MODE" == "yes" ]]; then
     info "大陆模式：用清华 PyPI 镜像 pip 安装 uv..."
     python3 -m pip install --user -i https://pypi.tuna.tsinghua.edu.cn/simple uv
@@ -180,6 +181,13 @@ elif [[ "$EXPLICIT_CN_FLAG" == "no-cn" ]]; then
 fi
 
 echo ""
+if [[ "${UV_JUST_INSTALLED:-0}" == "1" ]] && ! command -v uvx >/dev/null 2>&1; then
+  warn "刚装好的 uvx 还不在当前终端的 PATH 里（uv 装在 \$HOME/.local/bin）。"
+  echo "    先执行下面任一条，再跑后续命令，否则 doctor / 转录会报 uvx 找不到："
+  echo "      source \$HOME/.local/bin/env      # 让当前终端立即生效"
+  echo "      # 或：重开一个新终端（已写入 ~/.bashrc，新终端自动生效）"
+  echo ""
+fi
 echo "下一步："
 echo "  1) 跑体检：    bash scripts/doctor.sh"
 echo "  2) 第一次转录：python3 scripts/transcribe.py 你的录音.m4a"
