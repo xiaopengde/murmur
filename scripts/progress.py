@@ -121,8 +121,14 @@ def _monitor_hf_cache(progress: _Progress, env: dict[str, str], baseline_bytes: 
             continue
         stable_rounds = 0
         progress.last_cache_bytes = current
-        pct = f" ({min(99, int(delta * 100 / total_hint))}%)" if total_hint else ""
-        total_part = f" / ~{_format_byte_size(total_hint)}" if total_hint else ""
+        # total_hint 只是粗估；一旦实际下载量超过它，就别再显示会误导的「/ ~75MB (99%)」，
+        # 只老实报已下载体积（估算偏小很常见：模型外还有 tokenizer / VAD 等附带文件）。
+        if total_hint and delta < total_hint:
+            pct = f" ({int(delta * 100 / total_hint)}%)"
+            total_part = f" / ~{_format_byte_size(total_hint)}"
+        else:
+            pct = ""
+            total_part = ""
         print(f"      📥 模型下载中: {_format_byte_size(delta)}{total_part}{pct}", flush=True)
 
 
