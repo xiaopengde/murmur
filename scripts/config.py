@@ -21,8 +21,8 @@ from models import DEFAULT_MODEL, KNOWN_MODELS, ONBOARDING_MODEL_CHOICES, is_val
 
 VALID_FORMATS = {"md", "docx"}
 
-# 大陆镜像偏好的三种取值：
-#   on   = 每次转录都强制启用 HF/PyPI 镜像
+# 大陆模型/镜像偏好的三种取值：
+#   on   = 每次转录都强制启用 ModelScope 已验证模型；无映射时启用 HF/PyPI 镜像
 #   off  = 每次转录都强制走官方源
 #   auto = 由 transcribe.py 按时区/语言自动判断（默认）
 VALID_CN_MODES = {"on", "off", "auto"}
@@ -168,11 +168,21 @@ def onboarding_payload() -> dict:
             },
             {
                 "id": "default_model",
-                "prompt": "以后默认离线 Whisper 模型选哪个？（首次转录会下载到 HuggingFace 缓存）",
+                "prompt": "以后默认离线 Whisper 模型选哪个？（大陆环境会优先用 ModelScope 已验证源）",
                 "type": "single_select",
                 "options": model_options,
             },
         ],
+        "mainland_network": {
+            "default_model_source": "auto",
+            "modelscope_first": True,
+            "recommended_default_model": DEFAULT_MODEL,
+            "note": (
+                "For mainland China users, prefer the recommended large-v3-turbo. "
+                "On Apple Silicon it maps to the verified ModelScope MLX 4bit model; "
+                "models without a verified ModelScope mapping may fall back to HuggingFace."
+            ),
+        },
         "apply": {
             "command": (
                 "python scripts/transcribe.py --init-defaults "
@@ -283,10 +293,10 @@ def prompt_for_default_format() -> str:
     emit_onboarding_required()
 
 
-# ---------- 大陆镜像偏好（cn_mode） ----------
+# ---------- 大陆模型/镜像偏好（cn_mode） ----------
 
 def get_cn_mode() -> str:
-    """读取持久化的大陆镜像偏好。返回 'on' / 'off' / 'auto'（默认 'auto'）。
+    """读取持久化的大陆模型/镜像偏好。返回 'on' / 'off' / 'auto'（默认 'auto'）。
 
     决策语义（在 transcribe.py 里实现）：
       - on   → 每次都启用 HF/PyPI 镜像

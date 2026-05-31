@@ -86,7 +86,15 @@ ffmpeg -i 长录音.m4a -f segment -segment_time 900 -c copy 片段_%03d.m4a
 
 **原因**：国内访问 huggingface.co 不稳定。
 
-**解法**：用镜像
+**解法**：优先用 ModelScope 已验证模型；没有映射时再用 HuggingFace 兜底镜像。
+
+```bash
+python scripts/transcribe.py 录音.m4a --model-source modelscope
+```
+
+> ⚠️ 走 ModelScope（国内 CDN）时，如果开着**全局 VPN/代理**，会绕到海外再回国内，反而更慢——建议临时关掉 VPN 直连。（这点与 HuggingFace 路线相反：走 HF 时开 VPN 才快。）
+
+如果当前模型没有 ModelScope 映射，再手动设 HuggingFace 镜像：
 
 ```bash
 # Mac/Linux

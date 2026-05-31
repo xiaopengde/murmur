@@ -1,5 +1,5 @@
 # Murmur env doctor — Windows PowerShell
-# 检查 ffmpeg / uv / pandoc / python / 平台 / HuggingFace 缓存
+# 检查 ffmpeg / uv / pandoc / python / 平台 / 模型缓存
 #
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1
@@ -88,7 +88,20 @@ if ($pythonCmd) {
     Write-Host "      或从 https://python.org 下载"
 }
 
-# ---------- HuggingFace 缓存 ----------
+# ---------- 模型缓存 ----------
+$murmurModelCache = if ($env:MURMUR_MODEL_CACHE) { $env:MURMUR_MODEL_CACHE } else { "$env:USERPROFILE\.cache\murmur\models" }
+if (Test-Path $murmurModelCache) {
+    $weights = Get-ChildItem $murmurModelCache -Recurse -Include "weights.safetensors","model.bin" -ErrorAction SilentlyContinue
+    if ($weights) {
+        $size = "{0:N2} GB" -f ((Get-ChildItem $murmurModelCache -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1GB)
+        Write-Ok "Murmur / ModelScope 模型缓存已存在（缓存共 $size）"
+    } else {
+        Write-Info "Murmur / ModelScope 缓存目录存在，但暂未发现已验证模型权重"
+    }
+} else {
+    Write-Info "Murmur / ModelScope 模型缓存尚未建立；大陆环境会优先下载已验证 ModelScope 模型"
+}
+
 $hfCache = if ($env:HF_HOME) { "$env:HF_HOME\hub" } else { "$env:USERPROFILE\.cache\huggingface\hub" }
 if (Test-Path $hfCache) {
     $modelDirs = Get-ChildItem $hfCache -Filter "*whisper*large-v3*" -ErrorAction SilentlyContinue
@@ -96,11 +109,11 @@ if (Test-Path $hfCache) {
         $size = "{0:N2} GB" -f ((Get-ChildItem $hfCache -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1GB)
         Write-Ok "HuggingFace 缓存已含 whisper-large-v3 模型（缓存共 $size）"
     } else {
-        Write-Info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
+        Write-Info "HuggingFace 缓存目录存在但未含 large-v3；无 ModelScope 映射时可能需要从 HuggingFace 下载"
     }
 } else {
-    Write-Info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
-    Write-Info "国内网络慢可设：`$env:HF_ENDPOINT=`"https://hf-mirror.com`""
+    Write-Info "HuggingFace 缓存尚未建立；大陆环境应优先走 ModelScope，而不是先撞 HuggingFace"
+    Write-Info "国内网络慢优先用：python scripts\transcribe.py 录音.m4a --model-source modelscope"
 }
 
 # ---------- Murmur 配置 ----------
@@ -126,9 +139,9 @@ if ($pythonCmd) {
         Write-Info "Agent：看到 needs_onboarding=true 后必须用候选框询问用户，再运行 --init-defaults"
     }
     switch ($cnMode) {
-        "on"  { Write-Ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" }
-        "off" { Write-Info "大陆镜像偏好：off（每次走官方源；国内慢可改：python scripts\transcribe.py --set-default-cn on）" }
-        default { Write-Info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python scripts\transcribe.py --set-default-cn on）" }
+        "on"  { Write-Ok "大陆偏好：on（每次转录优先启用 ModelScope 已验证模型；无映射时启用 HF/PyPI 镜像）" }
+        "off" { Write-Info "大陆模型/镜像偏好：off（每次走官方源；国内慢可改：python scripts\transcribe.py --set-default-cn on）" }
+        default { Write-Info "大陆模型/镜像偏好：auto（按时区/语言自动判断；强制开：python scripts\transcribe.py --set-default-cn on）" }
     }
 } else {
     Write-Warn2 "无法读取 Murmur onboarding 状态：Python 未安装"
@@ -161,7 +174,20 @@ Write-Host "  烟雾测试 (-Smoke)"
 Write-Host "================================"
 Write-Host ""
 Write-Info "生成 2 秒测试音频 -> 跑完整 pipeline -> 校验输出"
-Write-Info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
+$smokeModel = "tiny"
+$smokeModelSource = "hf"
+if ($pythonCmd) {
+    & $pythonCmd (Join-Path $scriptDir "cn_env.py") --should-mirror 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $smokeModel = "large-v3-turbo"
+        $smokeModelSource = "modelscope"
+    }
+}
+if ($smokeModelSource -eq "modelscope") {
+    Write-Info "大陆/Windows smoke：优先用 ModelScope faster-whisper large-v3-turbo（约 1.62GB；首次会下载，之后秒级）"
+} else {
+    Write-Info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
+}
 Write-Host ""
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -186,13 +212,13 @@ try {
     Write-Host ""
 
     # 2) 跑 transcribe.py
-    Write-Info "[2/3] 跑 transcribe.py（临时配置 --model tiny --format md）..."
+    Write-Info "[2/3] 跑 transcribe.py（临时配置 --model $smokeModel --model-source $smokeModelSource --format md）..."
     $oldAppData = $env:APPDATA
     $env:APPDATA = Join-Path $smokeDir "config"
     $initLog = Join-Path $smokeDir "init.log"
     $init = Start-Process -FilePath $pythonCmd -ArgumentList @(
         (Join-Path $scriptDir "transcribe.py"),
-        "--init-defaults", "--format", "md", "--set-default-model", "tiny"
+        "--init-defaults", "--format", "md", "--set-default-model", $smokeModel
     ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $initLog -RedirectStandardError "$initLog.err"
     if ($init.ExitCode -ne 0) {
         Write-Err "临时 onboarding 初始化失败"
@@ -205,7 +231,8 @@ try {
     $py = Start-Process -FilePath $pythonCmd -ArgumentList @(
         (Join-Path $scriptDir "transcribe.py"),
         $smokeAudio,
-        "--model", "tiny",
+        "--model", $smokeModel,
+        "--model-source", $smokeModelSource,
         "--format", "md",
         "--output-dir", $smokeDir
     ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"

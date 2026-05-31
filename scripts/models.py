@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from typing import Literal
+
 DEFAULT_MODEL = "large-v3-turbo"
+
+ModelCacheStatus = Literal["cached", "missing", "unknown"]
 
 # One canonical short-name table. ctranslate2 accepts these names directly;
 # mlx-whisper needs explicit HuggingFace repo IDs (do not blindly append -mlx).
@@ -23,8 +29,8 @@ ONBOARDING_MODEL_CHOICES: tuple[dict[str, str], ...] = (
     {
         "id": "large-v3-turbo",
         "label": "large-v3-turbo（推荐）",
-        "description": "质量高、下载约 1.5GB，默认首选",
-        "download_hint": "约 1.5GB",
+        "description": "默认首选；大陆 Apple Silicon 会优先用 ModelScope 4bit（约 464MB），原源约 1.5GB",
+        "download_hint": "大陆 Apple Silicon 约 464MB；原源约 1.5GB",
     },
     {
         "id": "large-v3",
@@ -87,10 +93,83 @@ def model_download_bytes_hint(model: str) -> int | None:
     spec = MODEL_SPECS.get(model)
     if spec:
         return int(spec["bytes"])
-    for short_name, candidate in MODEL_SPECS.items():
+    for short_name, candidate in sorted(MODEL_SPECS.items(), key=lambda item: len(item[0]), reverse=True):
         if short_name in model.lower():
             return int(candidate["bytes"])
     return None
+
+
+def hf_hub_cache_dir(env: dict[str, str] | None = None) -> Path:
+    """Return the local HuggingFace Hub cache directory."""
+    env = env or {}
+    hf_hub_cache = env.get("HF_HUB_CACHE") or os.environ.get("HF_HUB_CACHE")
+    if hf_hub_cache:
+        return Path(hf_hub_cache)
+    hf_home = env.get("HF_HOME") or os.environ.get("HF_HOME")
+    if hf_home:
+        return Path(hf_home) / "hub"
+    return Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def _cache_repo_dir(repo_id: str, env: dict[str, str] | None = None) -> Path:
+    return hf_hub_cache_dir(env) / f"models--{repo_id.replace('/', '--')}"
+
+
+def _snapshot_has_files(snapshot: Path) -> bool:
+    try:
+        return snapshot.is_dir() and any(p.is_file() for p in snapshot.rglob("*"))
+    except OSError:
+        return False
+
+
+def _cache_status_from_layout(repo_id: str, env: dict[str, str] | None = None) -> ModelCacheStatus:
+    repo_dir = _cache_repo_dir(repo_id, env)
+    snapshots_dir = repo_dir / "snapshots"
+    if not repo_dir.exists():
+        return "missing"
+    if not snapshots_dir.exists():
+        return "unknown"
+    try:
+        snapshots = list(snapshots_dir.iterdir())
+    except OSError:
+        return "unknown"
+    return "cached" if any(_snapshot_has_files(snapshot) for snapshot in snapshots) else "unknown"
+
+
+def check_hf_model_cache(repo_id: str, env: dict[str, str] | None = None) -> ModelCacheStatus:
+    """Check whether a resolved HuggingFace model repo has a local snapshot.
+
+    Returns:
+      cached: a local snapshot for this repo is present.
+      missing: the HuggingFace cache is readable and this repo is not present.
+      unknown: cannot safely decide. This is used for non-HF short names
+        such as whisper-ctranslate2 model aliases, unreadable cache state, or
+        unavailable cache metadata.
+    """
+    repo_id = repo_id.strip()
+    if "/" not in repo_id:
+        return "unknown"
+
+    cache_dir = hf_hub_cache_dir(env)
+    if not cache_dir.exists():
+        return "missing"
+
+    try:
+        from huggingface_hub import scan_cache_dir  # type: ignore
+
+        info = scan_cache_dir(cache_dir)
+        for repo in info.repos:
+            if getattr(repo, "repo_id", None) != repo_id:
+                continue
+            revisions = getattr(repo, "revisions", None)
+            if revisions:
+                return "cached"
+            return _cache_status_from_layout(repo_id, env)
+        return "missing"
+    except ImportError:
+        return _cache_status_from_layout(repo_id, env)
+    except Exception:
+        return "unknown"
 
 
 def transcribe_failure_hint(resolved_model: str, output_tail: str) -> str:
@@ -108,11 +187,11 @@ def transcribe_failure_hint(resolved_model: str, output_tail: str) -> str:
     elif any(token in low for token in ("timed out", "timeout", "connection", "network", "temporary failure", "name resolution", "ssl")):
         lines.extend([
             "   判断：更像是网络 / DNS / TLS / HuggingFace 下载连接问题。",
-            "   处理：重试；大陆网络可加 --cn 启用 hf-mirror.com 和清华 PyPI 镜像。",
+            "   处理：重试；大陆网络优先加 --model-source modelscope 或 --cn 使用 ModelScope 已验证模型。",
         ])
     else:
         lines.extend([
             "   常见原因：HuggingFace 下载失败、uv 拉包失败、内存不足或音频格式异常。",
-            "   可尝试：--cn、--model medium/small，或查看 docs/troubleshooting.md。",
+            "   可尝试：--model-source modelscope、--cn、--model medium/small，或查看 docs/troubleshooting.md。",
         ])
     return "\n".join(lines) + "\n"

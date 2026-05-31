@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1
 
 doctor 脚本会分两块输出：
 
-1. **核心依赖状态**：`ffmpeg` / `uvx` / `pandoc` / `python3` / 平台和芯片 / HuggingFace 缓存
+1. **核心依赖状态**：`ffmpeg` / `uvx` / `pandoc` / `python3` / 平台和芯片 / 模型缓存（ModelScope / HuggingFace）
 2. **Murmur onboarding 状态**：默认输出格式、默认离线模型是否已经由用户明确选择
 
 **如果核心依赖有 ❌**，跑对应的 install 脚本：
@@ -65,7 +65,7 @@ bash scripts/doctor.sh --smoke                                    # macOS / Linu
 powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Smoke  # Windows
 ```
 
-会自动生成 2 秒测试音频跑完整 pipeline（用 tiny 模型，首次约 75MB），通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
+会自动生成 2 秒测试音频跑完整 pipeline。大陆 Apple Silicon 会优先用 ModelScope large-v3-turbo 4bit（首次约 464MB），其他环境用 tiny 模型（首次约 75MB）；通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
 
 ### 步骤 B — 新用户 / 首次 onboarding（硬门禁）
 
@@ -118,11 +118,34 @@ python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--mode
 3. 输出 `转录原稿.txt` + `字幕.srt` 到目标目录
 4. 清理临时 WAV
 
-**Codex / agent 进度转述要求**：转录时必须同步等待终端输出；每约 30 秒 poll 一次终端。看到新的 `📥 下载`、`⏳ 推理`、`✅ 完成` 心跳或阶段变化时，必须用前台消息简短转述给用户（例如“模型已下载 40%”“仍在推理，已用时 2:00”“转录完成，正在整理输出”），不要让用户长时间面对静默终端。
+> ### ⛔️ 进度转述硬约束（agent 必读，最常翻车的一步）
+>
+> **反模式（你大概率会犯，越自信的模型越容易犯）**：把这条转录命令当成「一个会返回结果的调用」，用一次性、长时间的前台阻塞等待（例如 `Waiting 12m for shell` / 一个 timeout=30min 的同步调用）等它跑完，期间不回头看终端。你可能觉得「下载和推理中间没我什么事，等结束再汇报最高效」——**这是错的**。脚本每 30 秒就在终端打一行心跳（`📥 模型下载/准备中... 已用时 x:xx` / `⏳ 转录推理中... 已用时 x:xx`），但只要你一次性阻塞到结束，这些心跳全被你埋掉，用户面对的就是 **十几分钟纯静默的终端**，完全不知道是在下载、在推理、还是已经卡死。说一句「我会盯着进度」**不等于**你真的在盯。
+>
+> **必须这样做（不可省略、不可优化掉）**：
+> 1. **禁止**用单次「阻塞等到命令结束」的方式跑转录。要么把它放后台跑，要么用**短** timeout（如每次最多等 30–45 秒）然后**反复**回来读终端。
+> 2. **每约 30 秒**必须主动 poll 一次终端输出。
+> 3. 每次 poll 后，只要看到**新的**心跳或阶段变化（`📥 下载/准备` → `⏳ 转录推理` → `✅ 完成`），**立刻**用一句前台消息转述给用户（例如「模型还在下载，约 40%」「已进入转录推理，已用时 2:00」「转录完成，正在整理输出」）。
+> 4. 从命令开始到结束，中间**不允许出现一次超过 ~45 秒的静默**。如果你发现自己正打算「等它跑完再说」，停下——那就是上面的反模式。
+>
+> 首次没有缓存时，**下载/准备完成后**才算进入推理阶段；这两个阶段都要分别转述，不要把「还在下载」说成「在推理」。
 
-**🇨🇳 大陆网络**：transcribe.py 会按时区/语言自动判断是否在大陆，命中就给 whisper 子进程注入：
-- `HF_ENDPOINT=https://hf-mirror.com`（模型下载走 hf-mirror）
-- `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉 mlx-whisper / whisper-ctranslate2 走清华）
+**🇨🇳 大陆网络**：transcribe.py 会按时区/语言自动判断是否在大陆。命中后默认使用 `--model-source auto`：
+- 对已验证映射，优先从 ModelScope 下载模型到 `~/.cache/murmur/models/`，然后把本地目录交给现有 `mlx-whisper` / `whisper-ctranslate2` 推理。
+- 对没有 ModelScope 映射的模型，继续给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖走清华）。
+
+> ⚠️ **走 ModelScope 时注意 VPN**：ModelScope 是国内 CDN，大陆**直连最快**。如果用户开了**全局 VPN / 代理**，流量会绕到海外再回国内，反而拖慢下载。看到走 ModelScope 时，agent 应提醒用户：「正在从国内源 ModelScope 下载，如开着全局 VPN 建议临时关掉直连更快」。（这点和走 HuggingFace 时相反——HF 路线开 VPN 才快。）
+
+可手动指定模型源：
+
+```bash
+python scripts/transcribe.py 录音.m4a --model-source modelscope  # 强制优先 ModelScope
+python scripts/transcribe.py 录音.m4a --model-source hf          # 强制原 HuggingFace/引擎默认源
+```
+
+当前已验证映射：
+- Apple Silicon / `mlx-whisper`：`large-v3-turbo` → `mlx-community/whisper-large-v3-turbo-4bit`（ModelScope，约 464MB；下载后自动适配 `model.safetensors` → `weights.safetensors`）
+- Windows / Linux / Intel Mac / `whisper-ctranslate2`：`large-v3-turbo` → `mobiuslabsgmbh/faster-whisper-large-v3-turbo`（ModelScope，约 1.62GB，CTranslate2 格式；需要按目标平台 smoke test）
 
 用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制单次开关。
 
@@ -154,7 +177,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 **预期耗时**：
 - M2/M3：音频时长 × 0.3-0.5
 - Windows / Linux CPU：音频时长 × 1-2（首次会更慢，模型加载约 30s）
-- 首次跑会下载模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
+- 首次跑会先下载模型到 `~/.cache/murmur/models/`（ModelScope 路线）或 `~/.cache/huggingface/hub/`（原 HuggingFace 路线；Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），日志显示 `📥 模型下载/准备中`；缓存就绪后才显示 `⏳ 转录推理中`，之后秒级冷启动
 
 **⚠️ 关键约定**：脚本里**已经默认**关掉了 `condition-on-previous-text`，因为这是 No.1 大坑（不关会输出"X 点 X 点 X 点……"或"谢谢观看"成段重复）。**不要**修改这个默认值。
 
@@ -188,6 +211,14 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 
 **5. 保存为 `逐字稿-清洗版.md`**，放在和音频同目录。
 
+**6. 主动把成果递到用户眼前（不要只报路径）**
+
+清洗稿是用户唯一真正关心的交付物，落盘后**必须**：
+
+- 在编辑器里**主动打开** `逐字稿-清洗版.md`（Cursor / VS Code：用打开文件的工具直接打开它，让用户一抬眼就看到稿子；Claude Code / Codex CLI 等无法直接开文件时，在回复里**贴出开头一段**做即时预览）。
+- 明确告诉用户文件的**完整保存路径**。
+- **不要**只甩一句「文件已保存在 xxx 目录」就完事——那样用户还得自己去翻文件树，体验差一口气。
+
 ### 步骤 E — 如果默认是 docx，转 docx
 
 ```bash
@@ -196,7 +227,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 
 会在同目录输出 `逐字稿-清洗版.docx`，用 pandoc 实现，跨平台一致。
 
-如果用户配置了默认 docx，**不要**问"要不要转 docx"，直接转就完事——这是设默认的意义。
+如果用户配置了默认 docx，**不要**问"要不要转 docx"，直接转就完事——这是设默认的意义。转好后同样**主动打开/告知 docx 的完整路径**，别让用户自己去找。
 
 ### 步骤 F（可选）— 复盘纪要
 
@@ -226,25 +257,27 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 
 ## 3. 各 agent 平台的小差异
 
+> **通用红线**：所有平台都必须遵守步骤 C 的「进度转述硬约束」——**不要**用一次性长阻塞等转录跑完。下面是各平台具体怎么做到「后台跑 / 短轮询 + 每 30s 转述」。
+
 ### GitHub Copilot Agent (VS Code)
 
-- `run_in_terminal` 跑 `transcribe.py` 时用 `mode='sync'` + 长 timeout（30 分钟录音建议 timeout 30min）
-- **不要**在转录跑着的时候 `send_to_terminal` 任何"看进度"的命令到同一个持久 zsh——会 Ctrl+C 掉进程
-- 真要看进度，新开终端
+- **不要**用 `mode='sync'` + 一个 30min 长 timeout 一次性等完——那样心跳全被埋掉。改用后台运行（`isBackground=true`）或 `mode='sync'` 配**短** timeout（30–45s）然后反复再读同一终端的输出
+- 看进度请**读取**该终端已有输出，**不要** `send_to_terminal` 任何命令到正在转录的持久 zsh——会 Ctrl+C 掉进程
+- 每约 30s 读一次终端，把新心跳转述给用户
 
 ### Claude Code
 
-- 用 `Bash` tool 直接跑命令；它有自动的 timeout 处理
+- **不要**用一个超长 timeout 的 `Bash` 调用阻塞到结束。把转录放后台（命令尾 `&` 或后台模式），再用 `BashOutput` 每约 30s 轮询一次输出并转述心跳
 - 如果用户在 macOS 且首次安装，可能需要 sudo 提示
 
 ### OpenAI Codex CLI
 
-- 默认权限可能不够；安装步骤需要用户手动 sudo
-- 转录命令本身不需要特权
+- 默认权限可能不够；安装步骤需要用户手动 sudo；转录命令本身不需要特权
+- **不要**一次性阻塞等待。用短超时反复 poll 终端，每约 30s 转述一次进度心跳
 
 ### Cursor
 
-- 跟 VS Code Copilot 行为一致
+- 跟 VS Code Copilot 行为一致：后台跑或短 timeout + 反复读终端，**严禁**单次长阻塞等待
 
 ---
 
@@ -255,7 +288,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 转录文本反复 "X 点 X 点 X 点…" 或某句话整段重复 | `condition-on-previous-text` 未关 | 用本仓库的 transcribe.py 不会有这个问题；如果手动改过命令，加回 `--condition-on-previous-text False` |
 | 全程 "谢谢观看" 成段重复 | 音频开头有静音 + 没做 ffmpeg 预处理 | 用本仓库的 transcribe.py 自动处理；手动跑时记得先 `ffmpeg -ar 16000 -ac 1` |
 | 速度极慢 | 用成了 openai-whisper PyPI 版（纯 CPU + Python） | 确认走的是 mlx-whisper（Mac AS）或 whisper-ctranslate2（其他） |
-| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
+| 模型下载卡住 | HuggingFace 网络问题 | 优先加 `--model-source modelscope` 或 `--cn` 走 ModelScope 已验证模型；常用国内的话直接 `--set-default-cn on` |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
 | `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |

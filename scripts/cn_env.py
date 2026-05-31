@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Murmur 大陆环境检测与镜像 env 构建 —— 供 transcribe / install / doctor 共用。
+"""Murmur 大陆环境检测与模型/镜像 env 构建 —— 供 transcribe / install / doctor 共用。
 
 CLI（给 shell 脚本调用）：
   python3 cn_env.py --detect          # exit 0=大陆环境，1=否
@@ -84,7 +84,7 @@ def detect_cn() -> bool:
 
 
 def resolve_cn_mode(cli_flag: bool | None) -> tuple[bool, str]:
-    """决定本次是否启用大陆镜像。优先级：CLI flag > config.cn_mode > 自动检测。"""
+    """决定本次是否启用大陆模型/镜像策略。优先级：CLI flag > config.cn_mode > 自动检测。"""
     if cli_flag is True:
         return True, "--cn"
     if cli_flag is False:
@@ -105,12 +105,12 @@ def resolve_cn_mode(cli_flag: bool | None) -> tuple[bool, str]:
 
 
 def should_use_cn_mirror() -> bool:
-    """转录 / smoke 测试是否应启用大陆镜像（读配置 + 自动检测）。"""
+    """转录 / smoke 测试是否应启用大陆模型/镜像策略（读配置 + 自动检测）。"""
     return resolve_cn_mode(None)[0]
 
 
 def build_cn_env(base_env: dict[str, str]) -> dict[str, str]:
-    """在 base_env 基础上注入大陆镜像变量；用户已显式设置的不覆盖。"""
+    """在 base_env 基础上注入大陆兜底镜像变量；用户已显式设置的不覆盖。"""
     env = dict(base_env)
     if not env.get("HF_ENDPOINT"):
         env["HF_ENDPOINT"] = CN_HF_ENDPOINT

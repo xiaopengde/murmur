@@ -116,13 +116,13 @@ which brew
 第一次 `uvx --from mlx-whisper mlx_whisper` 会做两件事：
 
 1. 用 uv 装 mlx-whisper 的 Python 依赖（约 1-2 分钟）
-2. 从 HuggingFace 下载 whisper-large-v3 模型（约 2.9GB，国内可能要 5-30 分钟）
+2. 大陆模式优先从 ModelScope 下载已验证 MLX 模型（默认 large-v3-turbo 4bit 约 464MB）；原 HuggingFace 路线才会下载更大的 Whisper 模型（large-v3 约 2.9GB）
 
 之后所有运行都是秒级冷启动。
 
 ### Q：HuggingFace 下载慢/失败？
 
-最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会优先从 ModelScope 下载已验证模型；没有 ModelScope 映射时，再给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
 
 ```bash
 python scripts/transcribe.py 录音.m4a --cn
@@ -140,7 +140,7 @@ python scripts/transcribe.py --set-default-cn auto  # 恢复按时区/语言自�
 
 或者直接 `bash scripts/install-mac.sh --cn`，安装结束时会自动写入偏好。
 
-想让所有命令长期生效（包括手动 `uvx` 调试）：
+想让 HuggingFace 兜底镜像对所有命令长期生效（包括手动 `uvx` 调试）：
 
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
