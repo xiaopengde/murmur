@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Murmur env doctor — macOS / Linux
-# 检查 ffmpeg / uv / pandoc / python3 / 平台 / HuggingFace 缓存
+# 检查 ffmpeg / uv / pandoc / python3 / 平台 / 模型缓存
 # 故意不开 set -e/-u —— 体检脚本就是要把所有问题报完，而不是遇到第一个就退
 #
 # 用法：
@@ -132,18 +132,30 @@ else
   fi
 fi
 
-# ---------- HuggingFace 缓存 ----------
+# ---------- 模型缓存 ----------
+MURMUR_MODEL_CACHE="${MURMUR_MODEL_CACHE:-$HOME/.cache/murmur/models}"
+if [[ -d "$MURMUR_MODEL_CACHE" ]]; then
+  MS_SIZE=$(du -sh "$MURMUR_MODEL_CACHE" 2>/dev/null | awk '{print $1}')
+  if find "$MURMUR_MODEL_CACHE" -maxdepth 2 \( -name "weights.safetensors" -o -name "model.bin" \) 2>/dev/null | grep -q .; then
+    ok "Murmur / ModelScope 模型缓存已存在（${MS_SIZE}）"
+  else
+    info "Murmur / ModelScope 缓存目录存在，但暂未发现已验证模型权重"
+  fi
+else
+  info "Murmur / ModelScope 模型缓存尚未建立；大陆环境会优先下载已验证 ModelScope 模型"
+fi
+
 HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
 if [[ -d "$HF_CACHE" ]]; then
   SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | awk '{print $1}')
   if find "$HF_CACHE" -name "*whisper*large-v3*" 2>/dev/null | grep -q .; then
     ok "HuggingFace 缓存已含 whisper-large-v3 模型（${SIZE}）"
   else
-    info "HuggingFace 缓存目录存在但未含 large-v3，首次转录会下载约 2.9GB"
+    info "HuggingFace 缓存目录存在但未含 large-v3；无 ModelScope 映射时可能需要从 HuggingFace 下载"
   fi
 else
-  info "HuggingFace 缓存尚未建立，首次转录会下载约 2.9GB 模型"
-  info "国内网络慢可设：export HF_ENDPOINT=https://hf-mirror.com"
+  info "HuggingFace 缓存尚未建立；大陆环境应优先走 ModelScope，而不是先撞 HuggingFace"
+  info "国内网络慢优先用：python3 scripts/transcribe.py 录音.m4a --model-source modelscope"
 fi
 
 # ---------- Murmur 配置 ----------
@@ -182,9 +194,9 @@ PY
     info "Agent：看到 needs_onboarding=true 后必须用候选框询问用户，再运行 --init-defaults"
   fi
   case "$CN_MODE" in
-    on) ok "大陆镜像偏好：on（每次转录自动启用 HF/PyPI 镜像）" ;;
-    off) info "大陆镜像偏好：off（每次转录走官方源；国内慢可改：python3 scripts/transcribe.py --set-default-cn on）" ;;
-    *) info "大陆镜像偏好：auto（按时区/语言自动判断；强制开：python3 scripts/transcribe.py --set-default-cn on）" ;;
+    on) ok "大陆偏好：on（每次转录优先启用 ModelScope 已验证模型；无映射时启用 HF/PyPI 镜像）" ;;
+    off) info "大陆模型/镜像偏好：off（每次转录走官方源；国内慢可改：python3 scripts/transcribe.py --set-default-cn on）" ;;
+    *) info "大陆模型/镜像偏好：auto（按时区/语言自动判断；强制开：python3 scripts/transcribe.py --set-default-cn on）" ;;
   esac
 else
   warn "无法读取 Murmur onboarding 状态：python3 未安装"
@@ -221,7 +233,15 @@ echo "  烟雾测试 (--smoke)"
 echo "================================"
 echo ""
 info "生成 2 秒测试音频 → 跑完整 pipeline → 校验输出"
-info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
+if [[ "$ENGINE" == "mlx-whisper" ]] && python3 "$SCRIPT_DIR/cn_env.py" --should-mirror >/dev/null 2>&1; then
+  SMOKE_MODEL="large-v3-turbo"
+  SMOKE_MODEL_SOURCE="modelscope"
+  info "大陆 Apple Silicon smoke：用 ModelScope large-v3-turbo 4bit（约 464MB；首次会下载，之后秒级）"
+else
+  SMOKE_MODEL="tiny"
+  SMOKE_MODEL_SOURCE="hf"
+  info "用 tiny 模型（约 75MB；首次会下载，之后秒级）"
+fi
 echo ""
 
 SMOKE_DIR="$(mktemp -d -t murmur-smoke.XXXXXX)"
@@ -265,11 +285,11 @@ fi
 ok "测试音频已生成：$SMOKE_AUDIO ($(du -h "$SMOKE_AUDIO" | awk '{print $1}'))"
 echo ""
 
-# 2) 跑 transcribe.py（强制 tiny + md，避免污染用户默认配置）
-info "[2/3] 跑 transcribe.py（临时配置 --model tiny --format md）..."
+# 2) 跑 transcribe.py（临时配置，避免污染用户默认配置）
+info "[2/3] 跑 transcribe.py（临时配置 --model ${SMOKE_MODEL} --model-source ${SMOKE_MODEL_SOURCE} --format md）..."
 SMOKE_CONFIG_HOME="$SMOKE_DIR/config"
 if ! XDG_CONFIG_HOME="$SMOKE_CONFIG_HOME" python3 "$SCRIPT_DIR/transcribe.py" \
-       --init-defaults --format md --set-default-model tiny \
+       --init-defaults --format md --set-default-model "$SMOKE_MODEL" \
        >"$SMOKE_DIR/init.log" 2>&1; then
   err "临时 onboarding 初始化失败。日志："
   cat "$SMOKE_DIR/init.log" | sed 's/^/    /'
@@ -277,7 +297,7 @@ if ! XDG_CONFIG_HOME="$SMOKE_CONFIG_HOME" python3 "$SCRIPT_DIR/transcribe.py" \
 fi
 START_TS=$(date +%s)
 if ! XDG_CONFIG_HOME="$SMOKE_CONFIG_HOME" python3 "$SCRIPT_DIR/transcribe.py" "$SMOKE_AUDIO" \
-       --model tiny --format md --output-dir "$SMOKE_DIR" \
+       --model "$SMOKE_MODEL" --model-source "$SMOKE_MODEL_SOURCE" --format md --output-dir "$SMOKE_DIR" \
        >"$SMOKE_DIR/transcribe.log" 2>&1; then
   err "transcribe.py 失败（exit=$?）。日志末尾："
   tail -20 "$SMOKE_DIR/transcribe.log" | sed 's/^/    /'

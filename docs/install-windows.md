@@ -156,7 +156,7 @@ $env:Path += ";C:\ffmpeg\bin"
 
 ### Q：HuggingFace 下载慢/失败
 
-最简单：跑 `transcribe.py` 时加 `--cn`，它会自动给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
+最简单：跑 `transcribe.py` 时加 `--cn`，它会优先从 ModelScope 下载已验证模型；没有 ModelScope 映射时，再给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com` 和清华 PyPI 镜像（影响 uv 拉 mlx-whisper / whisper-ctranslate2 本身）：
 
 ```powershell
 python scripts\transcribe.py 录音.m4a --cn
@@ -174,7 +174,7 @@ python scripts\transcribe.py --set-default-cn auto  # 恢复按时区/语言自�
 
 或者直接 `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`，安装结束时会自动写入偏好。
 
-想让所有命令长期生效（包括手动 `uvx` 调试），在 PowerShell 里设：
+想让 HuggingFace 兜底镜像对所有命令长期生效（包括手动 `uvx` 调试），在 PowerShell 里设：
 
 ```powershell
 $env:HF_ENDPOINT = "https://hf-mirror.com"

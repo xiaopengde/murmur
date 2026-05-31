@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from cn_env import CN_HF_ENDPOINT, CN_PYPI_INDEX
-from models import model_download_bytes_hint, model_download_size_hint, transcribe_failure_hint
+from models import check_hf_model_cache, model_download_bytes_hint, model_download_size_hint, transcribe_failure_hint
 from progress import run_subprocess_with_progress
 
 
@@ -45,14 +45,28 @@ def preprocess_audio(src: Path, dst: Path) -> None:
 
 
 def run_transcribe(wav: Path, output_dir: Path, language: str, engine: str, prefix: list[str], model: str, env: dict[str, str]) -> None:
-    print(f"[2/3] 转录中（引擎：{engine}，模型：{model}）...")
-    print(f"      首次跑会下载{model_download_size_hint(model)}模型，请耐心等待。")
-    print("      下载与推理过程中会持续打印进度（📥 下载 / ⏳ 推理），无需另开终端查询。")
-    if env.get("HF_ENDPOINT") == CN_HF_ENDPOINT:
+    local_model = Path(model).expanduser().exists()
+    cache_status = "cached" if local_model else check_hf_model_cache(model, env)
+    initial_stage = "transcribe" if cache_status == "cached" else "download"
+
+    print(f"[2/3] 准备模型并转录（引擎：{engine}，模型：{model}）...")
+    if local_model:
+        print("      使用本地模型目录，将直接进入转录推理。")
+    else:
+        print(f"      首次跑会下载{model_download_size_hint(model)}模型，请耐心等待。")
+    if not local_model:
+        if cache_status == "cached":
+            print("      检测到本机已有模型缓存，将直接进入转录推理。")
+        elif cache_status == "missing":
+            print("      未检测到本机模型缓存，将先下载/准备模型，完成后才进入转录推理。")
+        else:
+            print("      模型缓存状态未知，将先按下载/准备阶段显示；确认模型就绪后才进入转录推理。")
+    print("      下载/准备完成后才会进入推理；过程中会持续打印进度（📥 下载/准备 / ⏳ 转录推理）。")
+    if not local_model and env.get("HF_ENDPOINT") == CN_HF_ENDPOINT:
         print(f"      已启用 HuggingFace 镜像：{CN_HF_ENDPOINT}")
     if env.get("UV_INDEX_URL") == CN_PYPI_INDEX:
         print(f"      已启用 PyPI 镜像（uv）：{CN_PYPI_INDEX}")
-    if not env.get("HF_ENDPOINT") and not env.get("UV_INDEX_URL"):
+    if not local_model and not env.get("HF_ENDPOINT") and not env.get("UV_INDEX_URL"):
         print("      国内网络慢可加 --cn 启用 HuggingFace / PyPI 镜像。")
 
     if engine == "mlx-whisper":
@@ -66,7 +80,7 @@ def run_transcribe(wav: Path, output_dir: Path, language: str, engine: str, pref
             "--condition_on_previous_text", "False", "--output_format", "all", "--output_dir", str(output_dir),
         ]
 
-    returncode, output_tail = run_subprocess_with_progress(cmd, env, model_download_bytes_hint(model))
+    returncode, output_tail = run_subprocess_with_progress(cmd, env, model_download_bytes_hint(model), initial_stage)
     if returncode != 0:
         sys.stderr.write(transcribe_failure_hint(model, output_tail))
         sys.exit(4)

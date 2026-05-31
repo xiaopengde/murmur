@@ -220,7 +220,7 @@ if ($useCnMirror -and $pythonCmd) {
     $transcribePy = Join-Path $scriptDir "transcribe.py"
     & $pythonCmd $transcribePy --set-default-cn on 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python scripts\transcribe.py --set-default-cn off）"
+        Write-Ok "已记住偏好：以后 transcribe.py 默认启用大陆模型/镜像策略（关闭：python scripts\transcribe.py --set-default-cn off）"
     }
 } elseif ($explicitCn -eq $false -and $pythonCmd) {
     $transcribePy = Join-Path $scriptDir "transcribe.py"
@@ -239,7 +239,7 @@ Write-Host ""
 Write-Host "首次转录会下载 ~1.5GB 的 Whisper large-v3-turbo 模型，喝杯咖啡。"
 if ($useCnMirror) {
     Write-Host ""
-    Write-Host "🇨🇳 大陆镜像偏好已写入配置；模型下载走 hf-mirror.com，uv 拉包走清华 PyPI。"
+    Write-Host "🇨🇳 大陆偏好已写入配置；转录模型优先走 ModelScope 已验证源，uv 拉包走清华 PyPI。"
 } else {
     Write-Host "国内网络慢可加："
     Write-Host "  python scripts\transcribe.py --set-default-cn on"

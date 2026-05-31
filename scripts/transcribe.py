@@ -7,13 +7,14 @@
   python transcribe.py 录音.m4a --format docx
   python transcribe.py 录音.m4a --lang en             # 改语言
   python transcribe.py 录音.m4a --model medium        # 单次换模型（tiny/base/small/medium/large-v3...）
+  python transcribe.py 录音.m4a --model-source modelscope  # 强制从 ModelScope 准备已验证模型
   python transcribe.py 录音.m4a --output-dir out      # 改输出目录
-  python transcribe.py 录音.m4a --cn                  # 单次强制启用大陆镜像（HF / PyPI）
-  python transcribe.py 录音.m4a --no-cn               # 单次强制禁用大陆镜像
+  python transcribe.py 录音.m4a --cn                  # 单次强制启用大陆模型/镜像策略（ModelScope / HF / PyPI）
+  python transcribe.py 录音.m4a --no-cn               # 单次强制禁用大陆模型/镜像策略
   python transcribe.py --set-default md               # 改默认格式
   python transcribe.py --set-default docx
   python transcribe.py --set-default-model medium     # 改默认模型
-  python transcribe.py --set-default-cn on            # 持久启用大陆镜像（每次自动注入）
+  python transcribe.py --set-default-cn on            # 持久启用大陆模型/镜像策略
   python transcribe.py --set-default-cn off           # 持久禁用
   python transcribe.py --set-default-cn auto          # 恢复默认：按时区/语言自动判断
   python transcribe.py --show-config                  # 看当前配置
@@ -32,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 from cn_env import build_cn_env, detect_cn, resolve_cn_mode  # noqa: E402
+from model_sources import maybe_prepare_model_source  # noqa: E402
 from models import resolve_model  # noqa: E402
 from pipeline import (  # noqa: E402
     check_prereqs,
@@ -63,12 +65,21 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", default=None, help="输出目录（默认与音频同目录）")
     parser.add_argument(
+        "--model-source",
+        choices=["auto", "hf", "modelscope"],
+        default="auto",
+        help=(
+            "模型下载来源：auto=大陆模式优先 ModelScope 已验证映射，否则原 HuggingFace/引擎默认；"
+            "hf=强制原模型源；modelscope=强制 ModelScope（无映射则报错）"
+        ),
+    )
+    parser.add_argument(
         "--cn", dest="cn", action="store_true", default=None,
-        help="本次强制启用大陆镜像：给子进程注入 HF_ENDPOINT=hf-mirror.com 和 UV_INDEX_URL=清华 PyPI",
+        help="本次强制启用大陆模型/镜像策略：优先 ModelScope 已验证模型，无映射时再注入 HF/PyPI 镜像",
     )
     parser.add_argument(
         "--no-cn", dest="cn", action="store_false",
-        help="本次强制禁用大陆镜像（覆盖 cn_mode 配置 / 自动检测）",
+        help="本次强制禁用大陆模型/镜像策略（覆盖 cn_mode 配置 / 自动检测）",
     )
     parser.add_argument("--set-default", choices=["md", "docx"], help="设置永久默认格式后退出")
     parser.add_argument("--set-default-model", help="设置永久默认模型后退出（清空：传空串 ''）")
@@ -76,7 +87,7 @@ def main() -> int:
         "--set-default-cn",
         choices=["on", "off", "auto"],
         help=(
-            "设置持久化的大陆镜像偏好后退出。on=每次自动启用 / off=每次禁用 / "
+            "设置持久化的大陆模型/镜像偏好后退出。on=每次自动启用 / off=每次禁用 / "
             "auto=按时区/语言自动判断（默认）"
         ),
     )
@@ -101,12 +112,12 @@ def main() -> int:
         print(f"配置文件：{config.config_path()}")
         print(f"内容：{cfg or '(空)'}")
         print()
-        print(f"大陆镜像偏好（cn_mode）：{cn_mode}")
+        print(f"大陆模型/镜像偏好（cn_mode）：{cn_mode}")
         if cn_mode == "auto":
             detected = detect_cn()
             print(f"  └ 当前自动检测结果：{'命中（启用）' if detected else '未命中（禁用）'}")
         elif cn_mode == "on":
-            print("  └ 每次转录都会注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
+            print("  └ 每次转录会优先使用 ModelScope 已验证模型；无映射时注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
         else:
             print("  └ 每次转录都走官方源；如需单次启用：加 --cn")
         onboard = "已完成" if not config.needs_onboarding() else "未完成（跑 --onboarding 查看候选）"
@@ -140,7 +151,7 @@ def main() -> int:
     if getattr(args, "mirror", None):
         config.set_mirror(args.mirror)
         if args.mirror == "cn":
-            print("✅ 已开启国内镜像加速（清华 PyPI + hf-mirror.com）")
+            print("✅ 已开启国内模型/镜像加速（ModelScope 优先 + 清华 PyPI + hf-mirror.com 兜底）")
             print("   PyPI:        https://pypi.tuna.tsinghua.edu.cn/simple/")
             print("   HuggingFace: https://hf-mirror.com")
         else:
@@ -163,9 +174,9 @@ def main() -> int:
 
     if args.set_default_cn:
         config.set_cn_mode(args.set_default_cn)
-        print(f"✅ 大陆镜像偏好已改为：{args.set_default_cn}")
+        print(f"✅ 大陆模型/镜像偏好已改为：{args.set_default_cn}")
         if args.set_default_cn == "on":
-            print("   每次转录都会自动注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
+            print("   每次转录都会优先使用 ModelScope 已验证模型；无映射时注入 HF_ENDPOINT=hf-mirror.com / 清华 PyPI")
         elif args.set_default_cn == "off":
             print("   每次转录都走官方源；如需单次启用：加 --cn")
         else:
@@ -201,10 +212,10 @@ def main() -> int:
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else audio_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 决定是否启用大陆镜像：CLI flag > config.cn_mode > 自动检测
+    # 决定是否启用大陆模型/镜像策略：CLI flag > config.cn_mode > 自动检测
     cn_mode, cn_reason = resolve_cn_mode(args.cn)
     if cn_mode:
-        print(f"ℹ️  本次启用大陆镜像（{cn_reason}）")
+        print(f"ℹ️  本次启用大陆模型/镜像策略（{cn_reason}）")
         print("   持久化偏好：python transcribe.py --set-default-cn on|off|auto")
     elif cn_reason.startswith("auto"):
         # auto 模式且未命中：低调提示，让国内用户知道有这个选项
@@ -225,6 +236,16 @@ def main() -> int:
 
         engine, prefix = detect_engine()
         resolved_model = resolve_model(model_name, engine)
+        resolved_model, model_source_label = maybe_prepare_model_source(
+            model_name,
+            resolved_model,
+            engine,
+            child_env,
+            args.model_source,
+            cn_mode,
+        )
+        if model_source_label == "modelscope":
+            print(f"ℹ️  本次使用 ModelScope 本地模型：{resolved_model}")
         run_transcribe(wav, output_dir, args.lang, engine, prefix, resolved_model, child_env)
 
         try:

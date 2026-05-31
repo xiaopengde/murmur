@@ -86,7 +86,13 @@ ffmpeg -i 长录音.m4a -f segment -segment_time 900 -c copy 片段_%03d.m4a
 
 **原因**：国内访问 huggingface.co 不稳定。
 
-**解法**：用镜像
+**解法**：优先用 ModelScope 已验证模型；没有映射时再用 HuggingFace 兜底镜像。
+
+```bash
+python scripts/transcribe.py 录音.m4a --model-source modelscope
+```
+
+如果当前模型没有 ModelScope 映射，再手动设 HuggingFace 镜像：
 
 ```bash
 # Mac/Linux

@@ -4,8 +4,8 @@
 #
 # 用法：
 #   bash scripts/install-mac.sh                 # 自动检测是否在中国大陆，决定是否启用镜像
-#   bash scripts/install-mac.sh --cn            # 强制启用大陆镜像（USTC Homebrew）
-#   bash scripts/install-mac.sh --no-cn         # 强制禁用镜像
+#   bash scripts/install-mac.sh --cn            # 强制启用大陆安装/模型源偏好
+#   bash scripts/install-mac.sh --no-cn         # 强制禁用大陆偏好
 
 set -e
 
@@ -29,8 +29,8 @@ Murmur 一键安装 — macOS
 
 用法：
   bash scripts/install-mac.sh                 # 自动检测是否在中国大陆，决定是否启用镜像
-  bash scripts/install-mac.sh --cn            # 强制启用大陆镜像（USTC Homebrew）
-  bash scripts/install-mac.sh --no-cn         # 强制禁用镜像
+  bash scripts/install-mac.sh --cn            # 强制启用大陆安装/模型源偏好
+  bash scripts/install-mac.sh --no-cn         # 强制禁用大陆偏好
 EOF
 }
 
@@ -167,11 +167,11 @@ ok "Murmur 安装完成！"
 echo "================================"
 echo ""
 
-# ---------- 持久化大陆镜像偏好 + shell 配置 ----------
+# ---------- 持久化大陆模型/镜像偏好 + shell 配置 ----------
 if [[ "$CN_MODE" == "yes" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     python3 "$SCRIPT_DIR/transcribe.py" --set-default-cn on >/dev/null 2>&1 \
-      && ok "已记住偏好：以后 transcribe.py 默认启用大陆镜像（关闭：python3 scripts/transcribe.py --set-default-cn off）"
+      && ok "已记住偏好：以后 transcribe.py 默认启用大陆模型/镜像策略（关闭：python3 scripts/transcribe.py --set-default-cn off）"
   fi
   persist_cn_shell_profile
 elif [[ "$EXPLICIT_CN_FLAG" == "no-cn" ]]; then
@@ -189,7 +189,7 @@ echo ""
 echo "首次转录会下载 ~1.5GB 的 Whisper large-v3-turbo 模型，喝杯咖啡。"
 if [[ "$CN_MODE" == "yes" ]]; then
   echo ""
-  echo "🇨🇳 大陆镜像偏好已写入配置；Homebrew USTC 镜像已写入 shell profile；模型下载走 hf-mirror.com。"
+  echo "🇨🇳 大陆偏好已写入配置；Homebrew USTC 镜像已写入 shell profile；转录模型优先走 ModelScope 已验证源。"
 else
   echo "国内网络慢可加："
   echo "  python3 scripts/transcribe.py --set-default-cn on"

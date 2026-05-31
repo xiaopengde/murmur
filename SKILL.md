@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1
 
 doctor 脚本会分两块输出：
 
-1. **核心依赖状态**：`ffmpeg` / `uvx` / `pandoc` / `python3` / 平台和芯片 / HuggingFace 缓存
+1. **核心依赖状态**：`ffmpeg` / `uvx` / `pandoc` / `python3` / 平台和芯片 / 模型缓存（ModelScope / HuggingFace）
 2. **Murmur onboarding 状态**：默认输出格式、默认离线模型是否已经由用户明确选择
 
 **如果核心依赖有 ❌**，跑对应的 install 脚本：
@@ -65,7 +65,7 @@ bash scripts/doctor.sh --smoke                                    # macOS / Linu
 powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1 -Smoke  # Windows
 ```
 
-会自动生成 2 秒测试音频跑完整 pipeline（用 tiny 模型，首次约 75MB），通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
+会自动生成 2 秒测试音频跑完整 pipeline。大陆 Apple Silicon 会优先用 ModelScope large-v3-turbo 4bit（首次约 464MB），其他环境用 tiny 模型（首次约 75MB）；通过后说明 ffmpeg → uvx → mlx/whisper → 文件输出全链路工作。失败时会保留临时目录方便排查。
 
 ### 步骤 B — 新用户 / 首次 onboarding（硬门禁）
 
@@ -118,11 +118,22 @@ python scripts/transcribe.py <音频文件> [--lang zh] [--output-dir .] [--mode
 3. 输出 `转录原稿.txt` + `字幕.srt` 到目标目录
 4. 清理临时 WAV
 
-**Codex / agent 进度转述要求**：转录时必须同步等待终端输出；每约 30 秒 poll 一次终端。看到新的 `📥 下载`、`⏳ 推理`、`✅ 完成` 心跳或阶段变化时，必须用前台消息简短转述给用户（例如“模型已下载 40%”“仍在推理，已用时 2:00”“转录完成，正在整理输出”），不要让用户长时间面对静默终端。
+**Codex / agent 进度转述要求**：转录时必须同步等待终端输出；每约 30 秒 poll 一次终端。看到新的 `📥 模型下载/准备中`、`⏳ 转录推理中`、`✅ 完成` 心跳或阶段变化时，必须用前台消息简短转述给用户（例如“模型仍在下载/准备”“已进入转录推理，已用时 2:00”“转录完成，正在整理输出”），不要让用户长时间面对静默终端。首次没有缓存时，下载/准备完成后才算进入推理阶段。
 
-**🇨🇳 大陆网络**：transcribe.py 会按时区/语言自动判断是否在大陆，命中就给 whisper 子进程注入：
-- `HF_ENDPOINT=https://hf-mirror.com`（模型下载走 hf-mirror）
-- `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉 mlx-whisper / whisper-ctranslate2 走清华）
+**🇨🇳 大陆网络**：transcribe.py 会按时区/语言自动判断是否在大陆。命中后默认使用 `--model-source auto`：
+- 对已验证映射，优先从 ModelScope 下载模型到 `~/.cache/murmur/models/`，然后把本地目录交给现有 `mlx-whisper` / `whisper-ctranslate2` 推理。
+- 对没有 ModelScope 映射的模型，继续给 whisper 子进程注入 `HF_ENDPOINT=https://hf-mirror.com`（HuggingFace 镜像）和 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（uv 拉依赖走清华）。
+
+可手动指定模型源：
+
+```bash
+python scripts/transcribe.py 录音.m4a --model-source modelscope  # 强制优先 ModelScope
+python scripts/transcribe.py 录音.m4a --model-source hf          # 强制原 HuggingFace/引擎默认源
+```
+
+当前已验证映射：
+- Apple Silicon / `mlx-whisper`：`large-v3-turbo` → `mlx-community/whisper-large-v3-turbo-4bit`（ModelScope，约 464MB；下载后自动适配 `model.safetensors` → `weights.safetensors`）
+- Windows / Linux / Intel Mac / `whisper-ctranslate2`：`large-v3-turbo` → `mobiuslabsgmbh/faster-whisper-large-v3-turbo`（ModelScope，约 1.62GB，CTranslate2 格式；需要按目标平台 smoke test）
 
 用户已经手动设过的同名环境变量**不会被覆盖**。显式 `--cn` / `--no-cn` 强制单次开关。
 
@@ -154,7 +165,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 **预期耗时**：
 - M2/M3：音频时长 × 0.3-0.5
 - Windows / Linux CPU：音频时长 × 1-2（首次会更慢，模型加载约 30s）
-- 首次跑会下载模型到 `~/.cache/huggingface/hub/`（Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），之后秒级冷启动
+- 首次跑会先下载模型到 `~/.cache/murmur/models/`（ModelScope 路线）或 `~/.cache/huggingface/hub/`（原 HuggingFace 路线；Win 是 `%USERPROFILE%\.cache\huggingface\hub\`），日志显示 `📥 模型下载/准备中`；缓存就绪后才显示 `⏳ 转录推理中`，之后秒级冷启动
 
 **⚠️ 关键约定**：脚本里**已经默认**关掉了 `condition-on-previous-text`，因为这是 No.1 大坑（不关会输出"X 点 X 点 X 点……"或"谢谢观看"成段重复）。**不要**修改这个默认值。
 
@@ -255,7 +266,7 @@ python scripts/md2docx.py 逐字稿-清洗版.md
 | 转录文本反复 "X 点 X 点 X 点…" 或某句话整段重复 | `condition-on-previous-text` 未关 | 用本仓库的 transcribe.py 不会有这个问题；如果手动改过命令，加回 `--condition-on-previous-text False` |
 | 全程 "谢谢观看" 成段重复 | 音频开头有静音 + 没做 ffmpeg 预处理 | 用本仓库的 transcribe.py 自动处理；手动跑时记得先 `ffmpeg -ar 16000 -ac 1` |
 | 速度极慢 | 用成了 openai-whisper PyPI 版（纯 CPU + Python） | 确认走的是 mlx-whisper（Mac AS）或 whisper-ctranslate2（其他） |
-| 模型下载卡住 | HuggingFace 网络问题 | 加 `--cn` 让 transcribe.py 自动注入 `HF_ENDPOINT=https://hf-mirror.com`；常用国内的话直接 `--set-default-cn on` 一劳永逸 |
+| 模型下载卡住 | HuggingFace 网络问题 | 优先加 `--model-source modelscope` 或 `--cn` 走 ModelScope 已验证模型；常用国内的话直接 `--set-default-cn on` |
 | uvx 首次拉 mlx-whisper / whisper-ctranslate2 卡住 | PyPI 访问慢 | 同样加 `--cn`，会同时注入 `UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | CPU 机器转录慢、显存不够 | 模型太大 | 换小模型：`--model medium` 单次，或 `--set-default-model medium` 永久 |
 | `brew install` / `winget install` 卡在下载 | 国内访问 Homebrew bottle / GitHub Releases 慢 | 重跑安装脚本时加 CN flag：<br>Mac: `bash scripts/install-mac.sh --cn`（启用 USTC 镜像）<br>Win: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1 -CN`（启用 Scoop/PyPI 兜底）<br>脚本默认会按时区/语言自动判断，加 flag 是强制启用 |
