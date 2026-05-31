@@ -211,7 +211,11 @@ elif [[ "$CORE_OK" == "1" ]]; then
   warn "核心环境就绪，但 onboarding 未完成，暂不能开始转录。"
   echo "    下一步必须运行：python3 scripts/transcribe.py --onboarding"
 else
-  err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
+  if [[ "$OS" == "Darwin" ]]; then
+    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-mac.sh"
+  else
+    err "缺少核心依赖，请按上方提示安装；或一键跑：bash scripts/install-linux.sh"
+  fi
   if [[ "$SMOKE_MODE" == "yes" ]]; then
     err "依赖缺失，跳过 --smoke 端到端测试"
     exit 1

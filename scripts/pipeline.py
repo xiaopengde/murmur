@@ -27,8 +27,9 @@ def check_prereqs() -> None:
         sys.stderr.write(
             "❌ 缺少依赖：" + ", ".join(missing) + "\n"
             "   请先跑：\n"
-            "     macOS:   bash scripts/install-mac.sh\n"
-            "     Windows: powershell -ExecutionPolicy Bypass -File scripts\\install-windows.ps1\n"
+            "     macOS:        bash scripts/install-mac.sh\n"
+            "     Linux / WSL:  bash scripts/install-linux.sh\n"
+            "     Windows:      powershell -ExecutionPolicy Bypass -File scripts\\install-windows.ps1\n"
             "   或参考 docs/install-mac.md / docs/install-windows.md\n"
         )
         sys.exit(2)
