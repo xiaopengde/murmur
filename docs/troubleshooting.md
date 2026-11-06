@@ -104,7 +104,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 $env:HF_ENDPOINT = "https://hf-mirror.com"
 ```
 
-设完重跑。模型只下一次，之后离线可用。
+设完重跑。依赖和所选模型缓存就绪后，本地 ASR 可离线运行；LLM 清洗是否离线见 [README 隐私与离线边界](../README.md#隐私与离线边界)。
 
 ---
 

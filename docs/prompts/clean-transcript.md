@@ -3,6 +3,8 @@
 > 这是给 LLM（ChatGPT / Claude / Gemini / 国内大模型 / VS Code Copilot 都行）用的 prompt。
 > 把下面 `=== PROMPT 开始 ===` 到 `=== PROMPT 结束 ===` 之间的全部内容，连同你的 `转录原稿.txt` 一起发给 AI，它会输出一份带说话人标签、修过错字、分好章节的可读 Markdown。
 
+> **隐私提示**：发给云端 LLM 会将完整原稿（或你提交的片段）上传至该服务，适用其数据处理政策。本地 Whisper 不代表清洗也在本地。需要离线时，请自行配置本地 LLM，并确保客户端 / agent 不调用云端或同步文本；也可只保留 ASR 原稿。`scripts/clean.py` 仅本地组装 prompt，不调用 LLM。
+
 ---
 
 ## === PROMPT 开始 ===

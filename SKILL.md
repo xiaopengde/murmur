@@ -1,9 +1,9 @@
 ---
 name: murmur
-description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。零云端、零订阅、隐私不出本机。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
+description: 把一段中文（或任意 Whisper 支持语言）的会议/面试录音用本地 Whisper large-v3 转成文本，再清洗成带说话人标签、修过 ASR 错字、分好章节的 markdown 文档（可选再转成 docx）。跨平台（macOS Apple Silicon 用 mlx-whisper，Windows/Linux/Intel Mac 用 whisper-ctranslate2）。本地 ASR 无需订阅，依赖和模型就绪后可离线；云端 LLM 清洗会上传转录文本，费用和数据处理取决于所用服务；全流程离线需另配本地 LLM 及不上传文本的客户端/agent。适用：替代飞书妙计/通义听悟/Otter.ai 这类付费转录服务、需要在 VS Code 或 Word 里直接拿到可读稿、在 AI agent（Claude Code/Copilot/Codex/Cursor）里端到端跑通。不适用：实时转录、强噪声多人重叠会议、需要严格说话人分离的场景。
 ---
 
-# Murmur — 本地零成本音频转录与清洗工作流
+# Murmur — 本地音频转录 + AI 清洗工作流
 
 **仓库**：https://github.com/xiaopengde/murmur
 **适用 agent**：GitHub Copilot Agent / Claude Code / OpenAI Codex / Cursor / 任意遵循 [agentskills.io](https://agentskills.io) 的 agent
@@ -183,14 +183,18 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 
 ### 步骤 D — LLM 清洗成可读 Markdown
 
-读 `转录原稿.txt`，按以下步骤执行（**不要跳过任何一步**）：
+**先明确文本去向**：使用云端 LLM（包括当前云端 agent）清洗会将原稿或片段发送到服务端。读取或提交文本前，向用户说明所用服务及文本会离开本机；若用户要求离线或隐私不出本机，不得把原稿、字幕或清洗稿读入云端 agent 上下文，应只运行本地 ASR，或在用户自行配置的本地 LLM 和不上传/同步文本的客户端中清洗。Murmur 不内置本地 LLM 部署；onboarding 选择的是 ASR 模型，不是清洗 LLM。
+
+依赖和模型已准备好且客户端/agent 不调用云端或同步文本时，本地 LLM 清洗才可离线。以下清洗步骤仅在所选环境符合用户要求时执行；否则交付 ASR 原稿并说明清洗尚未进行。
+
+读 `转录原稿.txt`，按以下步骤执行：
 
 **1. 组装 prompt**（两种方式选一）
 
 - **自动（推荐）**：
   ```bash
   python scripts/clean.py 转录原稿.txt [--scene interview|meeting|podcast]
-  # 输出组装好的 prompt，复制到 LLM 对话框即可
+  # 仅本地组装 prompt，不调用 LLM；提交前确认文本去向
   ```
 - **手动**：打开 `docs/prompts/clean-transcript.md`，把 `## === PROMPT 开始 ===` 到 `## === PROMPT 结束 ===` 之间的内容**原封不动**复制出来（不要总结、不要省略、不要用下面的简化版代替）。然后在末尾的占位符处贴入 `转录原稿.txt` 的全部内容。
 
@@ -200,7 +204,7 @@ python scripts/transcribe.py --set-default-model ""                    # 清空�
 - 会议录音：`这是一段工作会议录音，已知参与者：[姓名/代号]。`
 - 不确定则不加（LLM 会从上下文推断）
 
-**3. 发给 LLM 执行**（GPT-4o / Claude / Gemini / 国内大模型均可）
+**3. 发给已明确运行环境的 LLM 执行**（云端服务会接收文本；离线场景使用本地 LLM）
 
 - 原稿超过 **1.5 万字**：先让 LLM 列出章节结构，再逐章节批次清洗，最后拼成一个文件
 - 说话人 ≥ 3 人且混乱：先听前 30 秒录音，告诉 LLM 每个人的角色/声音特征
@@ -314,20 +318,24 @@ bash scripts/doctor.sh
 # 2) 缺啥装啥
 bash scripts/install-mac.sh
 
-# 3) 转录（首次会问 md/docx，让用户回答）
+# 3) 首次先查看候选，让用户选择格式和 ASR 模型，再保存
+python scripts/transcribe.py --onboarding
+python scripts/transcribe.py --init-defaults --format <md|docx> --set-default-model <model>
+
+# 4) 转录（依赖和所选模型已缓存后可离线）
 python scripts/transcribe.py 面试.m4a
 
-# 4) agent 你来读 转录原稿.txt，按 docs/prompts/clean-transcript.md
-#    清洗输出 逐字稿-清洗版.md（这一步是 LLM 自己做，不调脚本）
+# 5) 按步骤 D 先明确文本去向，再在所选 LLM 环境清洗
+#    输出 逐字稿-清洗版.md；严格本地场景不要让云端 agent 读取文本
 
-# 5) 默认 docx → 转
+# 6) 默认 docx → 转
 python scripts/md2docx.py 逐字稿-清洗版.md
 
-# 6) 用户说要复盘？再来一步
+# 7) 用户说要复盘？同样先确认 LLM 环境和文本去向
 #    读 docs/prompts/retrospective.md，输出 复盘纪要.md
 ```
 
-整个过程**只有一次**用户交互（首次 onboarding 的格式 + 模型选择），之后都是无人值守。
+首次 onboarding 同时选择格式和 ASR 模型；清洗 / 复盘还需明确 LLM 环境及文本去向，之后可按已确认的方式运行。
 
 ---
 

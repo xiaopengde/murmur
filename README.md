@@ -1,6 +1,6 @@
 # Murmur
 
-本地零成本会议 / 面试录音转录 + AI 智能清洗工作流。告别飞书妙计 / 通义听悟，30 分钟录音直接出 Markdown 或 Word，给 AI agent 一句话就能跑完。
+本地免费会议 / 面试录音转录 + AI 智能清洗工作流（LLM 费用取决于所用服务）。告别飞书妙计 / 通义听悟，30 分钟录音直接出 Markdown 或 Word，给 AI agent 一句话就能跑完。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue.svg)](#环境要求)
@@ -14,11 +14,11 @@
 
 把任意一段会议 / 面试 / 课堂 / 播客录音在自己电脑上转成可读的 Markdown 或 Word 文档：
 
-- **本地跑**：模型只下一次（默认 large-v3-turbo 约 1.5GB），之后全程离线，敏感内容不出本机
+- **本地转录**：依赖和所选 Whisper 模型准备好后，ASR 可离线运行，录音不需上传；AI 清洗是否离线取决于所用 LLM
 - **足够快**：M2/M3 上 30 分钟录音约 10-15 分钟跑完；Windows / Intel Mac CPU 也能跑
 - **足够准**：基于 OpenAI Whisper large-v3-turbo + 中文常见 ASR 错词修正
 - **AI agent 原生**：给 Claude Code / Codex / GitHub Copilot / Cursor 一句话，端到端跑完整流程
-- **格式自由**：首次问一次默认要 md 还是 docx，之后随时改
+- **默认可选**：首次同时选择输出格式（md / docx）和默认离线 ASR 模型，之后随时改
 
 ---
 
@@ -26,9 +26,9 @@
 
 | | 飞书妙计 | 通义听悟 | Murmur |
 |---|---|---|---|
-| 单次费用 | 约 ¥0.5/分钟 | 约 ¥0.3/分钟 | 0 |
-| 数据隐私 | 上传云端 | 上传云端 | 全程本地 |
-| 离线可用 | 否 | 否 | 是 |
+| 单次费用 | 约 ¥0.5/分钟 | 约 ¥0.3/分钟 | 本地 ASR 免费；LLM 费用另计 |
+| 数据隐私 | 上传云端 | 上传云端 | ASR 本地；云端 LLM 清洗会上传文本 |
+| 离线可用 | 否 | 否 | ASR 可离线；清洗需本地 LLM 才可离线 |
 | 自定义清洗 | 模板固定 | 模板固定 | prompt 完全可改 |
 | 输出 docx | 是 | 是 | 是（pandoc）|
 | 跨平台 | Web 全平台 | Web 全平台 | macOS / Windows / Linux |
@@ -78,12 +78,12 @@ agent 会自动按 [SKILL.md](SKILL.md) 走完整套流程：
 
 1. 跑 `doctor` 体检脚本，看你环境缺什么
 2. 缺啥装啥（Mac 跑 `install-mac.sh`，Win 跑 `install-windows.ps1`）
-3. **首次**会问你"以后默认 md 还是 docx？"——你回 1 或 2 即可
-4. 跑转录（首次会先下载约 1.5GB 模型，默认 large-v3-turbo；下载完成后才进入推理，之后离线）
+3. **首次**会让你选择默认输出格式（`md` / `docx`）和默认离线 ASR 模型（`large-v3-turbo` / `large-v3` / `medium` / `small`），选完后保存配置
+4. 跑转录（首次会先下载约 1.5GB 模型，默认 large-v3-turbo；依赖和模型准备好后才进入推理，ASR 可离线）
 5. 用 LLM 自动清洗成可读 Markdown（带说话人、修错字、分章节）
 6. 默认 docx 时再转 Word
 
-**整个过程只需要一次用户交互**（首次的格式选择），之后无人值守。
+首次 onboarding 同时确认格式和 ASR 模型。清洗使用的 LLM 不在这两个选项中；执行前应明确其运行环境和文本去向，之后可按已确认的方式运行。
 
 ### 常用对话清单
 
@@ -118,6 +118,8 @@ git clone https://github.com/xiaopengde/murmur.git ; cd murmur
 powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
 python scripts\transcribe.py 你的录音.m4a
 ```
+
+首次转录前，先运行 `python scripts/transcribe.py --onboarding` 查看候选，再按自己的选择运行 `python scripts/transcribe.py --init-defaults --format <md|docx> --set-default-model <model>` 保存配置（Windows 同样适用）。未完成 onboarding 时，直接转录会退出；`--format` / `--model` 不能绕过。
 
 转录完会得到 `转录原稿.txt` + `字幕.srt`。把 [docs/prompts/clean-transcript.md](docs/prompts/clean-transcript.md) 的内容连同 `转录原稿.txt` 一起喂给任意 LLM（ChatGPT / Claude / 国内大模型都行），就能得到清洗后的 Markdown 文档。如果你设了默认 docx，再跑一下 `python scripts/md2docx.py 逐字稿-清洗版.md` 转 Word。
 
@@ -188,6 +190,14 @@ murmur/
 
 ---
 
+### 隐私与离线边界
+
+- **本地 ASR**：ffmpeg 预处理和 Whisper 转录在本机完成；安装依赖、下载或更换模型可能需要联网。依赖和所选模型已缓存后，ASR 支持离线运行。
+- **云端 LLM 清洗**：向 ChatGPT / Claude / Gemini 等云端服务提交原稿或片段，会将这些文本发送到服务端，适用其数据处理政策；本地 ASR 不代表后续清洗也在本地。
+- **本地 LLM 清洗**：可自行使用本机运行的 LLM 处理同一 prompt；模型和依赖准备好，且客户端 / agent 不调用云端或同步文本时，清洗才可离线、文本才留在本机。Murmur 不内置本地 LLM 部署。
+
+`clean.py` 仅在本地组装 prompt，不调用 LLM。若由云端 agent 读取原稿、字幕或清洗稿，内容同样可能发往其服务端；严格本地场景应使用本地命令行和本地清洗环境，也可仅保留 ASR 原稿。
+
 ## 环境要求
 
 | | 最低 | 推荐 |
@@ -196,7 +206,7 @@ murmur/
 | **Windows** | Windows 10/11 + 8GB RAM | + NVIDIA GPU（CUDA 加速）|
 | **Linux** | 任意发行版 + Python 3.9+ | x86_64 + 16GB RAM |
 | **磁盘** | 模型缓存约 3GB | 5GB |
-| **网络** | 首次下模型联网一次 | 之后离线 |
+| **网络** | 安装依赖和下载模型需联网 | 缓存就绪后 ASR 可离线；清洗见上方说明 |
 
 ---
 
@@ -255,14 +265,16 @@ A：MIT License，可以。Whisper 模型本身也是 MIT 开源，无商用限�
 
 ## English (brief)
 
-**Murmur** is a free, fully-local audio → markdown/docx pipeline that replaces SaaS transcription services like Otter.ai or Fireflies.ai. It's built **agent-first** — drop it into your AI coding agent's skills directory (Claude Code / Codex / GitHub Copilot / Cursor) and it runs end-to-end with a single natural-language request.
+**Murmur** combines free local ASR with LLM cleanup in an audio → markdown/docx workflow that replaces SaaS transcription services like Otter.ai or Fireflies.ai. It's built **agent-first** — drop it into your AI coding agent's skills directory (Claude Code / Codex / GitHub Copilot / Cursor) and it runs end-to-end with a single natural-language request.
 
 **Quick start (agent-first):** copy this line into your AI agent:
 
 > *Please install this skill locally for me: https://github.com/xiaopengde/murmur*
 
-The agent will detect whether you're on Claude Code / Copilot / Cursor / Codex and clone Murmur into the right skills directory. Then say *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"* and it'll run env doctor, install missing deps, ask you once for default md vs docx, transcribe with Whisper large-v3-turbo (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
+The agent will detect whether you're on Claude Code / Copilot / Cursor / Codex and clone Murmur into the right skills directory. Then say *"Use Murmur to transcribe ~/Desktop/meeting.m4a into a doc"* and it'll run env doctor, install missing deps, ask you to choose both a default output format (md/docx) and an offline ASR model, transcribe with Whisper large-v3-turbo (mlx on Apple Silicon, whisper-ctranslate2 elsewhere), and clean the output via LLM into a readable document.
 
-**Manual usage:** `bash scripts/install-mac.sh` (Mac) / `scripts/install-windows.ps1` (Win) → `python scripts/transcribe.py recording.m4a`.
+ASR can run offline once dependencies and the selected Whisper model are cached. Cloud LLM cleanup sends transcript text to the provider and may incur fees. Fully offline cleanup requires a separately configured local LLM and a client/agent that does not send or sync text to cloud services; Murmur does not bundle local LLM deployment.
+
+**Manual usage:** `bash scripts/install-mac.sh` (Mac) / `scripts/install-windows.ps1` (Win) → `python scripts/transcribe.py --onboarding` → save your choices with `--init-defaults --format <md|docx> --set-default-model <model>` → `python scripts/transcribe.py recording.m4a`.
 
 Full docs in Chinese above. PRs welcome.
